@@ -3,10 +3,15 @@ import Admin from '../models/Admin.js';
 
 export const authMiddleware = async (req, res, next) => {
   try {
-    console.log('🔐 Auth Middleware - Checking authentication');
-    console.log('📦 Request cookies:', req.cookies);
-    console.log('🔑 Authorization header:', req.header('Authorization'));
-    
+    // console.log('=== AUTH MIDDLEWARE DEBUG ===');
+    // console.log('📨 Request URL:', req.url);
+    // console.log('🔍 Request Method:', req.method);
+    // console.log('🍪 All Cookies:', req.cookies);
+    // console.log('🔑 adminToken Cookie:', req.cookies?.adminToken);
+    // console.log('📋 Authorization Header:', req.header('Authorization'));
+    // console.log('🌐 Origin Header:', req.header('Origin'));
+    // console.log('=============================');
+
     let token = req.cookies.adminToken;
     
     if (!token && req.header('Authorization')) {
@@ -15,22 +20,22 @@ export const authMiddleware = async (req, res, next) => {
     }
 
     if (!token) {
-      console.log('❌ No token found');
+      console.log('❌ No token found in cookies or headers');
       return res.status(401).json({
         success: false,
         error: 'Access denied. No token provided.'
       });
     }
 
-    console.log('✅ Token found:', token.substring(0, 20) + '...');
+    console.log('✅ Token found, verifying...');
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('🔓 Decoded token:', decoded);
+    console.log('🔓 Decoded token user ID:', decoded.id);
 
     const admin = await Admin.findById(decoded.id);
     
     if (!admin) {
-      console.log('❌ Admin not found for ID:', decoded.id);
+      console.log('❌ Admin not found in database');
       res.clearCookie('adminToken');
       return res.status(401).json({
         success: false,
@@ -38,11 +43,11 @@ export const authMiddleware = async (req, res, next) => {
       });
     }
 
-    console.log('✅ Admin found:', admin.email);
+    console.log('✅ Authentication successful for:', admin.email);
     req.admin = admin;
     next();
   } catch (error) {
-    console.log('❌ Auth error:', error.message);
+    console.log('❌ JWT Verification Error:', error.message);
     res.clearCookie('adminToken');
     res.status(401).json({
       success: false,
