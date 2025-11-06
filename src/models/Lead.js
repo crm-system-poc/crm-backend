@@ -41,21 +41,25 @@ const leadSchema = new mongoose.Schema({
     street: {
       type: String,
       trim: true,
+      required: [true, 'Street address is required'],
       maxlength: [200, 'Street address cannot exceed 200 characters']
     },
     city: {
       type: String,
       trim: true,
+      required: [true, 'City is required'],
       maxlength: [50, 'City cannot exceed 50 characters']
     },
     state: {
       type: String,
       trim: true,
+      required: [true, 'State is required'],
       maxlength: [50, 'State cannot exceed 50 characters']
     },
     zipCode: {
       type: String,
       trim: true,
+      required: [true, 'ZipCode is required'],
       maxlength: [20, 'Zip code cannot exceed 20 characters']
     },
     country: {
