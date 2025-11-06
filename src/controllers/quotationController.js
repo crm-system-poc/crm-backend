@@ -1,8 +1,5 @@
 import Quotation from '../models/Quotation.js';
 import Lead from '../models/Lead.js';
-import PDFDocument from 'pdfkit';
-import fs from 'fs';
-import path from 'path';
 
 const createQuotation = async (req, res) => {
   try {
@@ -15,6 +12,8 @@ const createQuotation = async (req, res) => {
       termsAndConditions
     } = req.body;
 
+    const parsedItems = typeof items === 'string' ? JSON.parse(items) : items;
+
     const lead = await Lead.findById(leadId).populate('createdBy', 'name email');
     if (!lead) {
       return res.status(404).json({
@@ -23,14 +22,14 @@ const createQuotation = async (req, res) => {
       });
     }
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
+    if (!parsedItems || !Array.isArray(parsedItems) || parsedItems.length === 0) {
       return res.status(400).json({
         success: false,
         error: 'At least one item is required for quotation'
       });
     }
 
-    const quotation = await Quotation.create({
+    const quotationData = {
       leadId,
       customerDetails: {
         customerName: lead.customerName,
@@ -39,15 +38,27 @@ const createQuotation = async (req, res) => {
         phoneNumber: lead.phoneNumber,
         address: lead.address
       },
-      items,
+      items: parsedItems,
       taxRate,
       validityDays,
       notes,
       termsAndConditions,
       createdBy: req.admin.id
-    });
+    };
 
-    await quotation.populate('leadId', 'customerName contactPerson email phoneNumber');
+    if (req.file) {
+      quotationData.pdfFile = {
+        s3Key: req.file.key,
+        originalName: req.file.originalname,
+        s3Url: req.file.location,
+        fileSize: req.file.size,
+        uploadedAt: new Date()
+      };
+    }
+
+    const quotation = await Quotation.create(quotationData);
+
+    await quotation.populate('leadId', 'customerName contactPerson email');
     await quotation.populate('createdBy', 'name email');
 
     res.status(201).json({
@@ -63,6 +74,14 @@ const createQuotation = async (req, res) => {
         error: messages.join(', ')
       });
     }
+    
+    if (error.name === 'SyntaxError' && error.message.includes('JSON')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid items format. Please provide valid JSON array.'
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: error.message
@@ -70,11 +89,9 @@ const createQuotation = async (req, res) => {
   }
 };
 
-const generateQuotationPDF = async (req, res) => {
+const uploadQuotationPDF = async (req, res) => {
   try {
-    const quotation = await Quotation.findById(req.params.id)
-      .populate('leadId')
-      .populate('createdBy', 'name email');
+    const quotation = await Quotation.findById(req.params.id);
 
     if (!quotation) {
       return res.status(404).json({
@@ -83,88 +100,110 @@ const generateQuotationPDF = async (req, res) => {
       });
     }
 
-    const doc = new PDFDocument({ margin: 50 });
-    
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=quotation-${quotation.quoteId}.pdf`);
-
-    doc.pipe(res);
-
-    doc.fontSize(20).font('Helvetica-Bold').text('QUOTATION', { align: 'center' });
-    doc.moveDown();
-    
-    doc.fontSize(12).font('Helvetica');
-    doc.text(`Quote ID: ${quotation.quoteId}`);
-    doc.text(`Date: ${quotation.dateOfQuote.toLocaleDateString()}`);
-    doc.text(`Valid Until: ${quotation.validUntil.toLocaleDateString()}`);
-    doc.moveDown();
-
-    doc.font('Helvetica-Bold').text('Bill To:');
-    doc.font('Helvetica');
-    doc.text(quotation.customerDetails.customerName);
-    doc.text(quotation.customerDetails.contactPerson);
-    doc.text(quotation.customerDetails.email);
-    doc.text(quotation.customerDetails.phoneNumber);
-    doc.text(quotation.customerDetails.address.street);
-    doc.text(`${quotation.customerDetails.address.city}, ${quotation.customerDetails.address.state} - ${quotation.customerDetails.address.zipCode}`);
-    doc.moveDown();
-
-    const tableTop = doc.y;
-    const itemX = 50;
-    const descX = 150;
-    const qtyX = 350;
-    const priceX = 400;
-    const totalX = 470;
-
-    doc.font('Helvetica-Bold');
-    doc.text('Item', itemX, tableTop);
-    doc.text('Description', descX, tableTop);
-    doc.text('Qty', qtyX, tableTop);
-    doc.text('Price', priceX, tableTop);
-    doc.text('Total', totalX, tableTop);
-    
-    doc.moveTo(50, tableTop + 15).lineTo(550, tableTop + 15).stroke();
-    
-    let y = tableTop + 25;
-    doc.font('Helvetica');
-    
-    quotation.items.forEach((item, index) => {
-      doc.text(item.productId, itemX, y);
-      doc.text(item.description, descX, y, { width: 180, align: 'left' });
-      doc.text(item.quantity.toString(), qtyX, y);
-      doc.text(`₹${item.unitPrice.toLocaleString()}`, priceX, y);
-      doc.text(`₹${item.total.toLocaleString()}`, totalX, y);
-      y += 20;
-    });
-
-    y += 10;
-    doc.moveTo(400, y).lineTo(550, y).stroke();
-    y += 10;
-    
-    doc.text('Subtotal:', 400, y);
-    doc.text(`₹${quotation.totalQuoteValue.toLocaleString()}`, totalX, y);
-    y += 20;
-    
-    doc.text(`Tax (${quotation.taxRate}%):`, 400, y);
-    doc.text(`₹${quotation.taxAmount.toLocaleString()}`, totalX, y);
-    y += 20;
-    
-    doc.font('Helvetica-Bold');
-    doc.text('Grand Total:', 400, y);
-    doc.text(`₹${quotation.grandTotal.toLocaleString()}`, totalX, y);
-
-    y += 40;
-    if (quotation.notes) {
-      doc.font('Helvetica-Bold').text('Notes:', 50, y);
-      doc.font('Helvetica').text(quotation.notes, 50, y + 15, { width: 500 });
-      y += 50;
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'PDF file is required'
+      });
     }
 
-    doc.font('Helvetica-Bold').text('Terms & Conditions:', 50, y);
-    doc.font('Helvetica').text(quotation.termsAndConditions, 50, y + 15, { width: 500 });
+    quotation.pdfFile = {
+      s3Key: req.file.key,
+      originalName: req.file.originalname,
+      s3Url: req.file.location,
+      fileSize: req.file.size,
+      uploadedAt: new Date()
+    };
 
-    doc.end();
+    await quotation.save();
+    await quotation.populate('leadId', 'customerName contactPerson email');
+    await quotation.populate('createdBy', 'name email');
 
+    res.json({
+      success: true,
+      message: 'PDF uploaded successfully',
+      data: quotation
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+const downloadQuotationPDF = async (req, res) => {
+  try {
+    const quotation = await Quotation.findById(req.params.id);
+
+    if (!quotation) {
+      return res.status(404).json({
+        success: false,
+        error: 'Quotation not found'
+      });
+    }
+
+    if (!quotation.pdfFile || !quotation.pdfFile.s3Url) {
+      return res.status(404).json({
+        success: false,
+        error: 'PDF not found for this quotation'
+      });
+    }
+
+    res.redirect(quotation.pdfFile.s3Url);
+
+    // Alternatively, you can stream the file from S3:
+    /*
+    const s3 = await import('../config/aws.js');
+    const fileStream = s3.default.getObject({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: quotation.pdfFile.s3Key
+    }).createReadStream();
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${quotation.pdfFile.originalName}"`);
+    fileStream.pipe(res);
+    */
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+const deleteQuotationPDF = async (req, res) => {
+  try {
+    const quotation = await Quotation.findById(req.params.id);
+
+    if (!quotation) {
+      return res.status(404).json({
+        success: false,
+        error: 'Quotation not found'
+      });
+    }
+
+    if (!quotation.pdfFile) {
+      return res.status(404).json({
+        success: false,
+        error: 'PDF not found for this quotation'
+      });
+    }
+
+    const s3 = await import('../config/aws.js');
+    await s3.default.deleteObject({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: quotation.pdfFile.s3Key
+    }).promise();
+
+    quotation.pdfFile = undefined;
+    await quotation.save();
+
+    res.json({
+      success: true,
+      message: 'PDF deleted successfully'
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -339,7 +378,9 @@ const getQuotationsByLead = async (req, res) => {
 
 export {
   createQuotation,
-  generateQuotationPDF,
+  uploadQuotationPDF,
+  downloadQuotationPDF,
+  deleteQuotationPDF,
   getAllQuotations,
   getQuotationById,
   updateQuotationStatus,

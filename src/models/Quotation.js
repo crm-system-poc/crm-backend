@@ -80,7 +80,7 @@ const quotationSchema = new mongoose.Schema({
   },
   taxRate: {
     type: Number,
-    default: 18, 
+    default: 18,
     min: 0,
     max: 100
   },
@@ -121,9 +121,27 @@ const quotationSchema = new mongoose.Schema({
     trim: true,
     default: 'Prices are valid for 30 days. Payment terms: 50% advance, 50% on delivery.'
   },
-  pdfPath: {
-    type: String,
-    trim: true
+
+  pdfFile: {
+    s3Key: {
+      type: String,
+      trim: true
+    },
+    originalName: {
+      type: String,
+      trim: true
+    },
+    s3Url: {
+      type: String,
+      trim: true
+    },
+    fileSize: {
+      type: Number
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
   },
   sentDate: {
     type: Date
@@ -179,15 +197,5 @@ quotationSchema.index({ status: 1 });
 quotationSchema.index({ dateOfQuote: -1 });
 quotationSchema.index({ validUntil: 1 });
 quotationSchema.index({ createdBy: 1 });
-
-quotationSchema.virtual('isExpired').get(function() {
-  return new Date() > this.validUntil;
-});
-
-quotationSchema.statics.getNextQuoteId = async function() {
-  const year = new Date().getFullYear();
-  const count = await this.countDocuments();
-  return `QT${year}${String(count + 1).padStart(4, '0')}`;
-};
 
 export default mongoose.model('Quotation', quotationSchema);
