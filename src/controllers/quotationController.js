@@ -298,7 +298,7 @@ const getQuotationById = async (req, res) => {
 
 const updateQuotationStatus = async (req, res) => {
   try {
-    const { status, sentTo } = req.body;
+    const { status } = req.body;
 
     const quotation = await Quotation.findById(req.params.id);
 
@@ -309,11 +309,7 @@ const updateQuotationStatus = async (req, res) => {
       });
     }
 
-    if (status === 'sent' && sentTo) {
-      quotation.status = status;
-      quotation.sentTo = sentTo;
-      quotation.sentDate = new Date();
-    } else if (status) {
+     if (status) {
       quotation.status = status;
     }
 

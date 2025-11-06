@@ -143,13 +143,6 @@ const quotationSchema = new mongoose.Schema({
       default: Date.now
     }
   },
-  sentDate: {
-    type: Date
-  },
-  sentTo: {
-    type: String,
-    trim: true
-  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
