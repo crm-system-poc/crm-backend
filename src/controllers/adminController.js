@@ -9,11 +9,17 @@ const generateToken = (adminId) => {
   );
 };
 
-const cookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge: 7 * 24 * 60 * 60 * 1000 
+const getCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax', 
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    ...(isProduction && { domain: '.yourdomain.com' }), 
+    path: '/'
+  };
 };
 
 const setupAdmin = async (req, res) => {
@@ -35,7 +41,7 @@ const setupAdmin = async (req, res) => {
 
     const token = generateToken(admin._id);
 
-    res.cookie('adminToken', token, cookieOptions);
+    res.cookie('adminToken', token, getCookieOptions());
 
     res.status(201).json({
       success: true,
@@ -71,7 +77,7 @@ const loginAdmin = async (req, res) => {
     
     const token = generateToken(admin._id);
 
-    res.cookie('adminToken', token, cookieOptions);
+    res.cookie('adminToken', token, getCookieOptions());
 
     res.json({
       success: true,
@@ -172,12 +178,8 @@ const changePassword = async (req, res) => {
 
 const logoutAdmin = async (req, res) => {
   try {
-    res.clearCookie('adminToken', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict'
-    });
-
+    res.clearCookie('adminToken', getCookieOptions());
+    
     res.json({
       success: true,
       message: 'Logged out successfully'

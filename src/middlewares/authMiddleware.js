@@ -3,7 +3,10 @@ import Admin from '../models/Admin.js';
 
 export const authMiddleware = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    let token = req.cookies.adminToken;
+    if (!token && req.header('Authorization')) {
+      token = req.header('Authorization').replace('Bearer ', '');
+    }
 
     if (!token) {
       return res.status(401).json({
@@ -16,6 +19,8 @@ export const authMiddleware = async (req, res, next) => {
     const admin = await Admin.findById(decoded.id);
 
     if (!admin) {
+
+      res.clearCookie('adminToken');
       return res.status(401).json({
         success: false,
         error: 'Token is not valid.'
@@ -25,6 +30,8 @@ export const authMiddleware = async (req, res, next) => {
     req.admin = admin;
     next();
   } catch (error) {
+
+    res.clearCookie('adminToken');
     res.status(401).json({
       success: false,
       error: 'Token is not valid.'
