@@ -1,8 +1,6 @@
 import express from 'express';
 import {
   createQuotation,
-  uploadQuotationPDF,
-  downloadQuotationPDF,
   deleteQuotationPDF,
   getAllQuotations,
   getQuotationById,
@@ -18,9 +16,9 @@ router.use(authMiddleware);
 
 router.post('/', uploadPDF, createQuotation);
 
-router.put('/:id/upload-pdf', uploadPDF, uploadQuotationPDF);
+// router.put('/:id/upload-pdf', uploadPDF, uploadQuotationPDF);
 
-router.get('/:id/download-pdf', downloadQuotationPDF);
+// router.get('/:id/download-pdf', downloadQuotationPDF);
 
 router.delete('/:id/pdf', deleteQuotationPDF);
 

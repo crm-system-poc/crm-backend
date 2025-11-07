@@ -13,7 +13,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "aws-sdk": "^2.1692.0",
+    "@aws-sdk/client-s3": "^3.926.0",
+    "@aws-sdk/lib-storage": "^3.925.0",
+    "@aws-sdk/s3-request-presigner": "^3.926.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -26,7 +28,6 @@
     "mongoose": "^8.19.3",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
-    "multer-s3": "^3.0.1",
     "pdfkit": "^0.17.2"
   },
   "devDependencies": {

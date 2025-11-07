@@ -1,5 +1,6 @@
 import Quotation from '../models/Quotation.js';
 import Lead from '../models/Lead.js';
+import { uploadToS3 } from '../utils/s3Utils.js';
 
 const createQuotation = async (req, res) => {
   try {
@@ -12,8 +13,17 @@ const createQuotation = async (req, res) => {
       termsAndConditions
     } = req.body;
 
+    console.log('📝 Creating quotation with data:', {
+      leadId,
+      itemsCount: items ? (typeof items === 'string' ? JSON.parse(items).length : items.length) : 0,
+      taxRate,
+      validityDays
+    });
+
+    // Parse items if it's a string (from form-data)
     const parsedItems = typeof items === 'string' ? JSON.parse(items) : items;
 
+    // Validate lead exists
     const lead = await Lead.findById(leadId).populate('createdBy', 'name email');
     if (!lead) {
       return res.status(404).json({
@@ -22,6 +32,7 @@ const createQuotation = async (req, res) => {
       });
     }
 
+    // Check if items are provided
     if (!parsedItems || !Array.isArray(parsedItems) || parsedItems.length === 0) {
       return res.status(400).json({
         success: false,
@@ -29,6 +40,7 @@ const createQuotation = async (req, res) => {
       });
     }
 
+    // Prepare quotation data with calculated fields
     const quotationData = {
       leadId,
       customerDetails: {
@@ -38,28 +50,68 @@ const createQuotation = async (req, res) => {
         phoneNumber: lead.phoneNumber,
         address: lead.address
       },
-      items: parsedItems,
-      taxRate,
-      validityDays,
+      items: parsedItems.map(item => ({
+        ...item,
+        total: item.unitPrice * item.quantity // Calculate item total upfront
+      })),
+      taxRate: Number(taxRate),
+      validityDays: Number(validityDays),
       notes,
       termsAndConditions,
-      createdBy: req.admin.id
+      createdBy: req.admin.id,
+      // Set required fields that will be validated
+      totalQuoteValue: parsedItems.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0),
+      taxAmount: (parsedItems.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0) * taxRate) / 100,
+      grandTotal: parsedItems.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0) * (1 + taxRate / 100),
+      validUntil: new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000)
     };
 
+    console.log('🧮 Pre-calculated values:', {
+      totalQuoteValue: quotationData.totalQuoteValue,
+      taxAmount: quotationData.taxAmount,
+      grandTotal: quotationData.grandTotal,
+      validUntil: quotationData.validUntil
+    });
+
+    // Add PDF file info if uploaded
     if (req.file) {
-      quotationData.pdfFile = {
-        s3Key: req.file.key,
-        originalName: req.file.originalname,
-        s3Url: req.file.location,
-        fileSize: req.file.size,
-        uploadedAt: new Date()
-      };
+      console.log('📁 File received:', req.file.originalname);
+      
+      try {
+        const folder = `quotations/${req.admin.id}`;
+        const s3UploadResult = await uploadToS3(req.file, folder);
+        
+        quotationData.pdfFile = {
+          s3Key: s3UploadResult.key,
+          originalName: s3UploadResult.originalName,
+          s3Url: s3UploadResult.url,
+          fileSize: s3UploadResult.fileSize,
+          uploadedAt: new Date()
+        };
+        
+        console.log('✅ File uploaded to S3:', s3UploadResult.key);
+      } catch (uploadError) {
+        console.error('❌ S3 upload failed:', uploadError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to upload PDF to cloud storage: ' + uploadError.message
+        });
+      }
     }
 
+    // Generate quote ID before creating
+    const quoteId = await Quotation.getNextQuoteId();
+    quotationData.quoteId = quoteId;
+    console.log('🎫 Generated quoteId:', quoteId);
+
+    // Create quotation
+    console.log('💾 Saving quotation to database...');
     const quotation = await Quotation.create(quotationData);
 
     await quotation.populate('leadId', 'customerName contactPerson email');
     await quotation.populate('createdBy', 'name email');
+
+    console.log('✅ Quotation created successfully:', quotation.quoteId);
 
     res.status(201).json({
       success: true,
@@ -67,8 +119,11 @@ const createQuotation = async (req, res) => {
       data: quotation
     });
   } catch (error) {
+    console.error('❌ Quotation creation error:', error);
+    
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(val => val.message);
+      console.error('📋 Validation errors:', messages);
       return res.status(400).json({
         success: false,
         error: messages.join(', ')
@@ -82,90 +137,6 @@ const createQuotation = async (req, res) => {
       });
     }
 
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-};
-
-const uploadQuotationPDF = async (req, res) => {
-  try {
-    const quotation = await Quotation.findById(req.params.id);
-
-    if (!quotation) {
-      return res.status(404).json({
-        success: false,
-        error: 'Quotation not found'
-      });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: 'PDF file is required'
-      });
-    }
-
-    quotation.pdfFile = {
-      s3Key: req.file.key,
-      originalName: req.file.originalname,
-      s3Url: req.file.location,
-      fileSize: req.file.size,
-      uploadedAt: new Date()
-    };
-
-    await quotation.save();
-    await quotation.populate('leadId', 'customerName contactPerson email');
-    await quotation.populate('createdBy', 'name email');
-
-    res.json({
-      success: true,
-      message: 'PDF uploaded successfully',
-      data: quotation
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-};
-
-const downloadQuotationPDF = async (req, res) => {
-  try {
-    const quotation = await Quotation.findById(req.params.id);
-
-    if (!quotation) {
-      return res.status(404).json({
-        success: false,
-        error: 'Quotation not found'
-      });
-    }
-
-    if (!quotation.pdfFile || !quotation.pdfFile.s3Url) {
-      return res.status(404).json({
-        success: false,
-        error: 'PDF not found for this quotation'
-      });
-    }
-
-    res.redirect(quotation.pdfFile.s3Url);
-
-    // Alternatively, you can stream the file from S3:
-    /*
-    const s3 = await import('../config/aws.js');
-    const fileStream = s3.default.getObject({
-      Bucket: process.env.S3_BUCKET_NAME,
-      Key: quotation.pdfFile.s3Key
-    }).createReadStream();
-    
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${quotation.pdfFile.originalName}"`);
-    fileStream.pipe(res);
-    */
-
-  } catch (error) {
     res.status(500).json({
       success: false,
       error: error.message
@@ -374,8 +345,6 @@ const getQuotationsByLead = async (req, res) => {
 
 export {
   createQuotation,
-  uploadQuotationPDF,
-  downloadQuotationPDF,
   deleteQuotationPDF,
   getAllQuotations,
   getQuotationById,

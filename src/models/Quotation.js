@@ -121,7 +121,7 @@ const quotationSchema = new mongoose.Schema({
     trim: true,
     default: 'Prices are valid for 30 days. Payment terms: 50% advance, 50% on delivery.'
   },
-
+  // S3 File Upload Fields
   pdfFile: {
     s3Key: {
       type: String,
@@ -143,6 +143,13 @@ const quotationSchema = new mongoose.Schema({
       default: Date.now
     }
   },
+  sentDate: {
+    type: Date
+  },
+  sentTo: {
+    type: String,
+    trim: true
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
@@ -160,35 +167,92 @@ const quotationSchema = new mongoose.Schema({
   }
 });
 
+// FIXED: Pre-save middleware to calculate totals and generate quote ID
 quotationSchema.pre('save', async function(next) {
+  console.log('🔄 Running pre-save middleware for quotation...');
+  
+  // Generate quote ID if not provided
   if (!this.quoteId) {
     const year = new Date().getFullYear();
     const count = await mongoose.model('Quotation').countDocuments();
     this.quoteId = `QT${year}${String(count + 1).padStart(4, '0')}`;
+    console.log('✅ Generated quoteId:', this.quoteId);
   }
 
+  // Calculate item totals and grand total
   if (this.items && this.items.length > 0) {
-    this.items.forEach(item => {
+    console.log('📊 Calculating totals for', this.items.length, 'items');
+    
+    this.items.forEach((item, index) => {
       item.total = item.unitPrice * item.quantity;
+      console.log(`   Item ${index + 1}: ${item.quantity} x ₹${item.unitPrice} = ₹${item.total}`);
     });
     
     this.totalQuoteValue = this.items.reduce((sum, item) => sum + item.total, 0);
     this.taxAmount = (this.totalQuoteValue * this.taxRate) / 100;
     this.grandTotal = this.totalQuoteValue + this.taxAmount;
+    
+    console.log('💰 Calculated totals:', {
+      subtotal: this.totalQuoteValue,
+      tax: this.taxAmount,
+      grandTotal: this.grandTotal
+    });
   }
 
+  // Set valid until date
   if (!this.validUntil) {
     this.validUntil = new Date(Date.now() + this.validityDays * 24 * 60 * 60 * 1000);
+    console.log('📅 Set validUntil:', this.validUntil);
   }
 
   next();
 });
 
-// quotationSchema.index({ quoteId: 1 });
+// FIXED: Pre-validate middleware to ensure calculations are done before validation
+quotationSchema.pre('validate', function(next) {
+  console.log('🔍 Running pre-validate middleware...');
+  
+  // Ensure required fields are set before validation
+  if (this.items && this.items.length > 0) {
+    this.items.forEach(item => {
+      if (!item.total && item.unitPrice && item.quantity) {
+        item.total = item.unitPrice * item.quantity;
+      }
+    });
+    
+    if (!this.totalQuoteValue) {
+      this.totalQuoteValue = this.items.reduce((sum, item) => sum + (item.total || 0), 0);
+    }
+    
+    if (!this.taxAmount && this.totalQuoteValue) {
+      this.taxAmount = (this.totalQuoteValue * (this.taxRate || 18)) / 100;
+    }
+    
+    if (!this.grandTotal && this.totalQuoteValue && this.taxAmount) {
+      this.grandTotal = this.totalQuoteValue + this.taxAmount;
+    }
+  }
+  
+  if (!this.validUntil) {
+    this.validUntil = new Date(Date.now() + (this.validityDays || 30) * 24 * 60 * 60 * 1000);
+  }
+
+  next();
+});
+
+// Indexes for better performance
+quotationSchema.index({ quoteId: 1 });
 quotationSchema.index({ leadId: 1 });
 quotationSchema.index({ status: 1 });
 quotationSchema.index({ dateOfQuote: -1 });
 quotationSchema.index({ validUntil: 1 });
 quotationSchema.index({ createdBy: 1 });
+
+// Static method to get next quote ID
+quotationSchema.statics.getNextQuoteId = async function() {
+  const year = new Date().getFullYear();
+  const count = await this.countDocuments();
+  return `QT${year}${String(count + 1).padStart(4, '0')}`;
+};
 
 export default mongoose.model('Quotation', quotationSchema);

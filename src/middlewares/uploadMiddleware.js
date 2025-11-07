@@ -1,34 +1,39 @@
 import multer from 'multer';
-import multerS3 from 'multer-s3';
-import s3 from '../config/aws.js';
-import path from 'path';
+
+const storage = multer.memoryStorage();
+
+const fileFilter = (req, file, cb) => {
+  const allowedMimes = {
+    image: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
+    pdf: ['application/pdf'],
+    document: ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+  };
+
+  if (allowedMimes.image.includes(file.mimetype) || 
+      allowedMimes.pdf.includes(file.mimetype) || 
+      allowedMimes.document.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only images, PDFs, and documents are allowed.'), false);
+  }
+};
 
 const upload = multer({
-  storage: multerS3({
-    s3: s3,
-    bucket: process.env.S3_BUCKET_NAME,
-    acl: 'public-read', 
-    metadata: function (req, file, cb) {
-      cb(null, { fieldName: file.fieldname });
-    },
-    key: function (req, file, cb) {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const filename = `quotations/${uniqueSuffix}-${file.originalname}`;
-      cb(null, filename);
-    }
-  }),
-  fileFilter: function (req, file, cb) {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed'), false);
-    }
-  },
+  storage: storage,
+  fileFilter: fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024 
+    fileSize: 10 * 1024 * 1024
   }
 });
 
-export const uploadPDF = upload.single('quotationPdf');
+export const uploadSingle = (fieldName) => upload.single(fieldName);
 
-export const uploadMultiplePDFs = upload.array('quotationPdfs', 5);
+export const uploadMultiple = (fieldName, maxCount = 5) => upload.array(fieldName, maxCount);
+
+export const uploadFields = (fields) => upload.fields(fields);
+
+export const uploadImage = upload.single('image');
+export const uploadPDF = upload.single('pdf');
+export const uploadDocument = upload.single('document');
+export const uploadMultipleImages = upload.array('images', 10);
+export const uploadMultipleFiles = upload.array('files', 5);
