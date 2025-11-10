@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   createQuotation,
+  deleteQuotation,
   deleteQuotationPDF,
   getAllQuotations,
   getQuotationById,
@@ -15,7 +16,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/', uploadPDF, createQuotation);
-
+router.delete('/:id', deleteQuotation);
 // router.put('/:id/upload-pdf', uploadPDF, uploadQuotationPDF);
 
 // router.get('/:id/download-pdf', downloadQuotationPDF);

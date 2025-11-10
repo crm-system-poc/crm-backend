@@ -143,6 +143,75 @@ const createQuotation = async (req, res) => {
     });
   }
 };
+const deleteQuotation = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('🗑️ Deleting quotation:', id);
+
+    // Find the quotation first
+    const quotation = await Quotation.findById(id);
+
+    if (!quotation) {
+      return res.status(404).json({
+        success: false,
+        error: 'Quotation not found'
+      });
+    }
+
+    // Check if user has permission to delete (optional security check)
+    // You can add additional checks here, e.g., only allow deletion by creator or admin
+    if (quotation.createdBy.toString() !== req.admin.id) {
+      console.log('⚠️ Permission denied: User', req.admin.id, 'tried to delete quotation by', quotation.createdBy);
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to delete this quotation'
+      });
+    }
+
+    // Delete associated PDF from S3 if exists
+    if (quotation.pdfFile && quotation.pdfFile.s3Key) {
+      try {
+        console.log('📁 Deleting PDF from S3:', quotation.pdfFile.s3Key);
+        await deleteFileFromS3(quotation.pdfFile.s3Key);
+        console.log('✅ PDF deleted from S3');
+      } catch (s3Error) {
+        console.error('⚠️ Failed to delete PDF from S3, continuing with database deletion:', s3Error.message);
+        // Continue with deletion even if S3 delete fails
+      }
+    }
+
+    // Delete the quotation from database
+    await Quotation.findByIdAndDelete(id);
+
+    console.log('✅ Quotation deleted successfully:', quotation.quoteId);
+
+    res.json({
+      success: true,
+      message: 'Quotation deleted successfully',
+      data: {
+        id: quotation._id,
+        quoteId: quotation.quoteId,
+        customerName: quotation.customerDetails.customerName
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Quotation deletion error:', error);
+
+    if (error.name === 'CastError') {
+      return res.status(404).json({
+        success: false,
+        error: 'Quotation not found'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 
 const deleteQuotationPDF = async (req, res) => {
   try {
@@ -345,6 +414,7 @@ const getQuotationsByLead = async (req, res) => {
 
 export {
   createQuotation,
+  deleteQuotation,
   deleteQuotationPDF,
   getAllQuotations,
   getQuotationById,
