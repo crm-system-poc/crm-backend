@@ -121,7 +121,6 @@ const quotationSchema = new mongoose.Schema({
     trim: true,
     default: 'Prices are valid for 30 days. Payment terms: 50% advance, 50% on delivery.'
   },
-  // S3 File Upload Fields
   pdfFile: {
     s3Key: {
       type: String,
@@ -167,11 +166,9 @@ const quotationSchema = new mongoose.Schema({
   }
 });
 
-// FIXED: Pre-save middleware to calculate totals and generate quote ID
 quotationSchema.pre('save', async function(next) {
   console.log('🔄 Running pre-save middleware for quotation...');
   
-  // Generate quote ID if not provided
   if (!this.quoteId) {
     const year = new Date().getFullYear();
     const count = await mongoose.model('Quotation').countDocuments();
@@ -179,7 +176,6 @@ quotationSchema.pre('save', async function(next) {
     console.log('✅ Generated quoteId:', this.quoteId);
   }
 
-  // Calculate item totals and grand total
   if (this.items && this.items.length > 0) {
     console.log('📊 Calculating totals for', this.items.length, 'items');
     
@@ -199,7 +195,6 @@ quotationSchema.pre('save', async function(next) {
     });
   }
 
-  // Set valid until date
   if (!this.validUntil) {
     this.validUntil = new Date(Date.now() + this.validityDays * 24 * 60 * 60 * 1000);
     console.log('📅 Set validUntil:', this.validUntil);
@@ -208,11 +203,9 @@ quotationSchema.pre('save', async function(next) {
   next();
 });
 
-// FIXED: Pre-validate middleware to ensure calculations are done before validation
 quotationSchema.pre('validate', function(next) {
   console.log('🔍 Running pre-validate middleware...');
   
-  // Ensure required fields are set before validation
   if (this.items && this.items.length > 0) {
     this.items.forEach(item => {
       if (!item.total && item.unitPrice && item.quantity) {
@@ -240,7 +233,6 @@ quotationSchema.pre('validate', function(next) {
   next();
 });
 
-// Indexes for better performance
 quotationSchema.index({ quoteId: 1 });
 quotationSchema.index({ leadId: 1 });
 quotationSchema.index({ status: 1 });
@@ -248,7 +240,6 @@ quotationSchema.index({ dateOfQuote: -1 });
 quotationSchema.index({ validUntil: 1 });
 quotationSchema.index({ createdBy: 1 });
 
-// Static method to get next quote ID
 quotationSchema.statics.getNextQuoteId = async function() {
   const year = new Date().getFullYear();
   const count = await this.countDocuments();

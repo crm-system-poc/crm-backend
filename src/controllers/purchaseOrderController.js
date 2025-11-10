@@ -3,9 +3,6 @@ import Lead from "../models/Lead.js";
 import Quotation from "../models/Quotation.js";
 import { uploadToS3, deleteFileFromS3 } from "../utils/s3Utils.js";
 
-// @desc    Create a new purchase order
-// @route   POST /api/purchase-orders
-// @access  Private
 const createPurchaseOrder = async (req, res) => {
   try {
     const {
@@ -29,9 +26,6 @@ const createPurchaseOrder = async (req, res) => {
       poDate,
     });
 
-    // ========== MANDATORY FIELD VALIDATIONS ==========
-
-    // 1. Validate PO PDF is uploaded
     if (!req.files || !req.files.poPdf || req.files.poPdf.length === 0) {
       return res.status(400).json({
         success: false,
@@ -39,7 +33,6 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    // 2. Validate lead exists
     if (!leadId) {
       return res.status(400).json({
         success: false,
@@ -58,7 +51,6 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    // 3. Validate items are provided and properly formatted
     if (!items) {
       return res.status(400).json({
         success: false,
@@ -66,7 +58,6 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    // Parse items if it's a string (from form-data)
     const parsedItems = typeof items === "string" ? JSON.parse(items) : items;
 
     if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
@@ -76,7 +67,6 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    // 4. Validate each item has required fields
     const itemErrors = [];
     parsedItems.forEach((item, index) => {
       if (!item.productId) {
@@ -91,7 +81,6 @@ const createPurchaseOrder = async (req, res) => {
       if (!item.licenseType) {
         itemErrors.push(`Item ${index + 1}: License type is required`);
       }
-      // Validate license expiry date for non-perpetual licenses
       if (
         item.licenseType &&
         item.licenseType !== "perpetual" &&
@@ -103,7 +92,7 @@ const createPurchaseOrder = async (req, res) => {
           }: License expiry date is required for ${item.licenseType.toUpperCase()} license`
         );
       }
-      // Validate expiry date is in future for non-perpetual
+
       if (
         item.licenseType &&
         item.licenseType !== "perpetual" &&
@@ -127,7 +116,7 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    // 5. Validate PO Date
+
     let validatedPODate = poDate ? new Date(poDate) : new Date();
     if (validatedPODate > new Date()) {
       return res.status(400).json({
@@ -136,7 +125,7 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    // 6. Validate quotation exists if provided
+
     if (quotationId) {
       const quotation = await Quotation.findById(quotationId);
       if (!quotation) {
@@ -147,9 +136,6 @@ const createPurchaseOrder = async (req, res) => {
       }
     }
 
-    // ========== PREPARE PURCHASE ORDER DATA ==========
-
-    // Upload PO PDF first (MANDATORY)
     console.log("📁 PO PDF received:", req.files.poPdf[0].originalname);
 
     let poPdfData;
@@ -174,7 +160,6 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    // Process additional attachments if any
     const additionalAttachments = [];
     if (req.files.attachments && req.files.attachments.length > 0) {
       console.log(
@@ -188,7 +173,7 @@ const createPurchaseOrder = async (req, res) => {
           const s3UploadResult = await uploadToS3(file, folder);
 
           additionalAttachments.push({
-            type: "other", // Default type, can be updated later
+            type: "other",
             originalName: s3UploadResult.originalName,
             s3Key: s3UploadResult.key,
             s3Url: s3UploadResult.url,
@@ -206,12 +191,11 @@ const createPurchaseOrder = async (req, res) => {
             "⚠️ Failed to upload additional attachment:",
             uploadError.message
           );
-          // Continue with other attachments even if one fails
+        
         }
       }
     }
 
-    // Prepare purchase order data
     const poData = {
       leadId,
       quotationId,
@@ -239,10 +223,9 @@ const createPurchaseOrder = async (req, res) => {
       paymentTerms,
       deliveryTerms,
       notes,
-      poPdf: poPdfData, // MANDATORY
+      poPdf: poPdfData,
       attachments: additionalAttachments,
       createdBy: req.admin.id,
-      // Set calculated fields
       totalAmount: parsedItems.reduce(
         (sum, item) =>
           sum +
@@ -257,12 +240,10 @@ const createPurchaseOrder = async (req, res) => {
       attachmentsCount: poData.attachments.length,
     });
 
-    // Generate PO number before creating
     const poNumber = await PurchaseOrder.getNextPONumber();
     poData.poNumber = poNumber;
     console.log("🎫 Generated PO number:", poNumber);
 
-    // Create purchase order
     console.log("💾 Saving purchase order to database...");
     const purchaseOrder = await PurchaseOrder.create(poData);
 
@@ -306,9 +287,6 @@ const createPurchaseOrder = async (req, res) => {
   }
 };
 
-// @desc    Add attachment to purchase order
-// @route   POST /api/purchase-orders/:id/attachments
-// @access  Private
 const addAttachment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -363,9 +341,6 @@ const addAttachment = async (req, res) => {
   }
 };
 
-// @desc    Get all purchase orders with filtering
-// @route   GET /api/purchase-orders
-// @access  Private
 const getAllPurchaseOrders = async (req, res) => {
   try {
     const {
@@ -426,9 +401,6 @@ const getAllPurchaseOrders = async (req, res) => {
   }
 };
 
-// @desc    Get single purchase order by ID
-// @route   GET /api/purchase-orders/:id
-// @access  Private
 const getPurchaseOrderById = async (req, res) => {
   try {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
@@ -461,9 +433,6 @@ const getPurchaseOrderById = async (req, res) => {
   }
 };
 
-// @desc    Update purchase order status
-// @route   PUT /api/purchase-orders/:id/status
-// @access  Private
 const updatePurchaseOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -480,7 +449,6 @@ const updatePurchaseOrderStatus = async (req, res) => {
     if (status) {
       purchaseOrder.status = status;
 
-      // Set date based on status
       if (status === "sent") {
         purchaseOrder.sentDate = new Date();
       } else if (status === "acknowledged") {
@@ -515,9 +483,6 @@ const updatePurchaseOrderStatus = async (req, res) => {
   }
 };
 
-// @desc    Get purchase orders by lead ID
-// @route   GET /api/purchase-orders/lead/:leadId
-// @access  Private
 const getPurchaseOrdersByLead = async (req, res) => {
   try {
     const { leadId } = req.params;
@@ -554,9 +519,6 @@ const getPurchaseOrdersByLead = async (req, res) => {
   }
 };
 
-// @desc    Delete purchase order
-// @route   DELETE /api/purchase-orders/:id
-// @access  Private
 const deletePurchaseOrder = async (req, res) => {
   try {
     const { id } = req.params;
@@ -572,7 +534,6 @@ const deletePurchaseOrder = async (req, res) => {
       });
     }
 
-    // Check permission
     if (purchaseOrder.createdBy.toString() !== req.admin.id) {
       return res.status(403).json({
         success: false,
@@ -580,7 +541,6 @@ const deletePurchaseOrder = async (req, res) => {
       });
     }
 
-    // Delete PO PDF from S3 if exists
     if (purchaseOrder.poPdf && purchaseOrder.poPdf.s3Key) {
       try {
         await deleteFileFromS3(purchaseOrder.poPdf.s3Key);
@@ -589,7 +549,6 @@ const deletePurchaseOrder = async (req, res) => {
       }
     }
 
-    // Delete all attachments from S3
     if (purchaseOrder.attachments && purchaseOrder.attachments.length > 0) {
       for (const attachment of purchaseOrder.attachments) {
         try {
@@ -603,7 +562,6 @@ const deletePurchaseOrder = async (req, res) => {
       }
     }
 
-    // Delete from database
     await PurchaseOrder.findByIdAndDelete(id);
 
     console.log(
@@ -637,9 +595,6 @@ const deletePurchaseOrder = async (req, res) => {
   }
 };
 
-// @desc    Get purchase orders with expiring licenses
-// @route   GET /api/purchase-orders/expiring-licenses
-// @access  Private
 const getExpiringLicenses = async (req, res) => {
   try {
     const { days = 30 } = req.query;

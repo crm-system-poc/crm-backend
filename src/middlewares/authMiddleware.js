@@ -3,14 +3,6 @@ import Admin from '../models/Admin.js';
 
 export const authMiddleware = async (req, res, next) => {
   try {
-    // console.log('=== AUTH MIDDLEWARE DEBUG ===');
-    // console.log('📨 Request URL:', req.url);
-    // console.log('🔍 Request Method:', req.method);
-    // console.log('🍪 All Cookies:', req.cookies);
-    // console.log('🔑 adminToken Cookie:', req.cookies?.adminToken);
-    // console.log('📋 Authorization Header:', req.header('Authorization'));
-    // console.log('🌐 Origin Header:', req.header('Origin'));
-    // console.log('=============================');
 
     let token = req.cookies.adminToken;
     

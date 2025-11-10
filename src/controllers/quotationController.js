@@ -20,10 +20,8 @@ const createQuotation = async (req, res) => {
       validityDays
     });
 
-    // Parse items if it's a string (from form-data)
     const parsedItems = typeof items === 'string' ? JSON.parse(items) : items;
 
-    // Validate lead exists
     const lead = await Lead.findById(leadId).populate('createdBy', 'name email');
     if (!lead) {
       return res.status(404).json({
@@ -32,7 +30,6 @@ const createQuotation = async (req, res) => {
       });
     }
 
-    // Check if items are provided
     if (!parsedItems || !Array.isArray(parsedItems) || parsedItems.length === 0) {
       return res.status(400).json({
         success: false,
@@ -40,7 +37,6 @@ const createQuotation = async (req, res) => {
       });
     }
 
-    // Prepare quotation data with calculated fields
     const quotationData = {
       leadId,
       customerDetails: {
@@ -52,14 +48,13 @@ const createQuotation = async (req, res) => {
       },
       items: parsedItems.map(item => ({
         ...item,
-        total: item.unitPrice * item.quantity // Calculate item total upfront
+        total: item.unitPrice * item.quantity 
       })),
       taxRate: Number(taxRate),
       validityDays: Number(validityDays),
       notes,
       termsAndConditions,
       createdBy: req.admin.id,
-      // Set required fields that will be validated
       totalQuoteValue: parsedItems.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0),
       taxAmount: (parsedItems.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0) * taxRate) / 100,
       grandTotal: parsedItems.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0) * (1 + taxRate / 100),
@@ -73,7 +68,6 @@ const createQuotation = async (req, res) => {
       validUntil: quotationData.validUntil
     });
 
-    // Add PDF file info if uploaded
     if (req.file) {
       console.log('📁 File received:', req.file.originalname);
       
@@ -99,12 +93,10 @@ const createQuotation = async (req, res) => {
       }
     }
 
-    // Generate quote ID before creating
     const quoteId = await Quotation.getNextQuoteId();
     quotationData.quoteId = quoteId;
     console.log('🎫 Generated quoteId:', quoteId);
 
-    // Create quotation
     console.log('💾 Saving quotation to database...');
     const quotation = await Quotation.create(quotationData);
 
@@ -149,7 +141,6 @@ const deleteQuotation = async (req, res) => {
 
     console.log('🗑️ Deleting quotation:', id);
 
-    // Find the quotation first
     const quotation = await Quotation.findById(id);
 
     if (!quotation) {
@@ -159,8 +150,6 @@ const deleteQuotation = async (req, res) => {
       });
     }
 
-    // Check if user has permission to delete (optional security check)
-    // You can add additional checks here, e.g., only allow deletion by creator or admin
     if (quotation.createdBy.toString() !== req.admin.id) {
       console.log('⚠️ Permission denied: User', req.admin.id, 'tried to delete quotation by', quotation.createdBy);
       return res.status(403).json({
@@ -169,7 +158,6 @@ const deleteQuotation = async (req, res) => {
       });
     }
 
-    // Delete associated PDF from S3 if exists
     if (quotation.pdfFile && quotation.pdfFile.s3Key) {
       try {
         console.log('📁 Deleting PDF from S3:', quotation.pdfFile.s3Key);
@@ -177,11 +165,9 @@ const deleteQuotation = async (req, res) => {
         console.log('✅ PDF deleted from S3');
       } catch (s3Error) {
         console.error('⚠️ Failed to delete PDF from S3, continuing with database deletion:', s3Error.message);
-        // Continue with deletion even if S3 delete fails
       }
     }
 
-    // Delete the quotation from database
     await Quotation.findByIdAndDelete(id);
 
     console.log('✅ Quotation deleted successfully:', quotation.quoteId);

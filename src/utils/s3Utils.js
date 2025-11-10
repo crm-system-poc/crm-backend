@@ -11,7 +11,6 @@ const s3Client = new S3Client({
 
 const BUCKET = process.env.S3_BUCKET_NAME;
 
-// Generic file upload function
 const uploadToS3 = async (file, folder = 'general') => {
   const key = `${folder}/${Date.now()}-${file.originalname}`;
   const command = new PutObjectCommand({
@@ -37,7 +36,6 @@ const uploadToS3 = async (file, folder = 'general') => {
   }
 };
 
-// Upload with custom key
 const uploadFileWithKey = async (fileBuffer, key, contentType) => {
   const command = new PutObjectCommand({
     Bucket: BUCKET,
@@ -56,7 +54,6 @@ const uploadFileWithKey = async (fileBuffer, key, contentType) => {
   }
 };
 
-// Get files by folder/user
 const getFilesByFolder = async (folder) => {
   const command = new ListObjectsV2Command({
     Bucket: BUCKET,
@@ -78,7 +75,6 @@ const getFilesByFolder = async (folder) => {
   }
 };
 
-// Generate presigned URL for file access
 const getPresignedUrl = async (key, expiresIn = 3600) => {
   try {
     const command = new GetObjectCommand({ 
@@ -92,7 +88,6 @@ const getPresignedUrl = async (key, expiresIn = 3600) => {
   }
 };
 
-// Delete file from S3
 const deleteFileFromS3 = async (key) => {
   const command = new DeleteObjectCommand({
     Bucket: BUCKET,
@@ -107,8 +102,6 @@ const deleteFileFromS3 = async (key) => {
     throw new Error(`Failed to delete file: ${error.message}`);
   }
 };
-
-// Generate download URL (presigned)
 const getDownloadUrl = async (key, filename, expiresIn = 900) => {
   try {
     const command = new GetObjectCommand({ 

@@ -25,12 +25,10 @@ const poItemSchema = new mongoose.Schema({
   licenseExpiryDate: {
     type: Date,
     required: function() {
-      // Required for all license types except perpetual
       return this.licenseType !== 'perpetual';
     },
     validate: {
       validator: function(date) {
-        // For non-perpetual licenses, expiry date must be in the future
         if (this.licenseType !== 'perpetual') {
           return date && date > new Date();
         }
@@ -177,7 +175,6 @@ const purchaseOrderSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Notes cannot exceed 1000 characters']
   },
-  // Main PO PDF attachment - REQUIRED
   poPdf: {
     originalName: {
       type: String,
@@ -202,7 +199,6 @@ const purchaseOrderSchema = new mongoose.Schema({
       default: Date.now
     }
   },
-  // Additional attachments
   attachments: [poAttachmentSchema],
   sentDate: {
     type: Date

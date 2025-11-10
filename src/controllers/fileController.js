@@ -6,9 +6,6 @@ import {
     getDownloadUrl
   } from '../utils/s3Utils.js';
   
-  // @desc    Upload single file
-  // @route   POST /api/files/upload
-  // @access  Private
   const uploadFile = async (req, res) => {
     try {
       if (!req.file) {
@@ -35,9 +32,6 @@ import {
     }
   };
   
-  // @desc    Upload multiple files
-  // @route   POST /api/files/upload-multiple
-  // @access  Private
   const uploadMultipleFiles = async (req, res) => {
     try {
       if (!req.files || req.files.length === 0) {
@@ -65,9 +59,6 @@ import {
     }
   };
   
-  // @desc    Get files by folder
-  // @route   GET /api/files/folder/:folder
-  // @access  Private
   const getFiles = async (req, res) => {
     try {
       const { folder } = req.params;
@@ -86,9 +77,6 @@ import {
     }
   };
   
-  // @desc    Get presigned URL for file access
-  // @route   GET /api/files/presigned-url/:key
-  // @access  Private
   const getFilePresignedUrl = async (req, res) => {
     try {
       const { key } = req.params;
@@ -112,9 +100,6 @@ import {
     }
   };
   
-  // @desc    Get download URL for file
-  // @route   GET /api/files/download/:key
-  // @access  Private
   const downloadFile = async (req, res) => {
     try {
       const { key } = req.params;
@@ -135,9 +120,6 @@ import {
     }
   };
   
-  // @desc    Delete file
-  // @route   DELETE /api/files/:key
-  // @access  Private
   const deleteFile = async (req, res) => {
     try {
       const { key } = req.params;
@@ -158,9 +140,6 @@ import {
     }
   };
   
-  // @desc    Upload profile image
-  // @route   POST /api/files/upload/profile-image
-  // @access  Private
   const uploadProfileImage = async (req, res) => {
     try {
       if (!req.file) {
@@ -170,7 +149,6 @@ import {
         });
       }
   
-      // Check if file is an image
       if (!req.file.mimetype.startsWith('image/')) {
         return res.status(400).json({
           success: false,
@@ -195,9 +173,6 @@ import {
     }
   };
   
-  // @desc    Upload quotation PDF
-  // @route   POST /api/files/upload/quotation-pdf
-  // @access  Private
   const uploadQuotationPDF = async (req, res) => {
     try {
       if (!req.file) {
@@ -207,7 +182,6 @@ import {
         });
       }
   
-      // Check if file is PDF
       if (req.file.mimetype !== 'application/pdf') {
         return res.status(400).json({
           success: false,
