@@ -11,6 +11,7 @@ import express from "express"
 import leadRoutes from './routes/leadRoute.js';
 import quotationRoutes from './routes/quotationRoute.js';
 import purchaseOrderRoutes from './routes/purchaseOrderRoute.js';
+import reportRoutes from './routes/reportRoute.js';
 import fileRoutes from './routes/fileRoute.js';
 const app = express();
 
@@ -39,6 +40,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
+app.use('/api/reports', reportRoutes);
 app.use('/api/files', fileRoutes);
 
 app.get('/health', (req, res) => {
