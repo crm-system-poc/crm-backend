@@ -1,0 +1,322 @@
+import mongoose from 'mongoose';
+
+const poItemSchema = new mongoose.Schema({
+  productId: {
+    type: String,
+    required: [true, 'Product ID is required'],
+    trim: true
+  },
+  description: {
+    type: String,
+    required: [true, 'Product description is required'],
+    trim: true,
+    maxlength: [500, 'Description cannot exceed 500 characters']
+  },
+  quantity: {
+    type: Number,
+    required: [true, 'Quantity is required'],
+    min: [1, 'Quantity must be at least 1']
+  },
+  licenseType: {
+    type: String,
+    enum: ['perpetual', 'saas', 'sro', 'mro', 'xaas', 'other'],
+    required: [true, 'License type is required']
+  },
+  licenseExpiryDate: {
+    type: Date,
+    required: function() {
+      // Required for all license types except perpetual
+      return this.licenseType !== 'perpetual';
+    },
+    validate: {
+      validator: function(date) {
+        // For non-perpetual licenses, expiry date must be in the future
+        if (this.licenseType !== 'perpetual') {
+          return date && date > new Date();
+        }
+        return true;
+      },
+      message: 'License expiry date must be in the future for non-perpetual licenses'
+    }
+  },
+  unitPrice: {
+    type: Number,
+    min: [0, 'Unit price cannot be negative']
+  },
+  totalPrice: {
+    type: Number,
+    min: [0, 'Total price cannot be negative']
+  }
+});
+
+const poAttachmentSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['po', 'invoice', 'license_file', 'installation_report', 'license_agreement', 'other'],
+    required: true
+  },
+  originalName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  s3Key: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  s3Url: {
+    type: String,
+    trim: true
+  },
+  fileSize: {
+    type: Number
+  },
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Notes cannot exceed 500 characters']
+  }
+});
+
+const purchaseOrderSchema = new mongoose.Schema({
+  poNumber: {
+    type: String,
+    unique: true,
+    required: [true, 'PO Number is required'],
+    trim: true,
+    uppercase: true
+  },
+  leadId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Lead',
+    required: [true, 'Lead reference is required']
+  },
+  quotationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Quotation'
+  },
+  poDate: {
+    type: Date,
+    required: [true, 'PO Date is required'],
+    default: Date.now,
+    validate: {
+      validator: function(date) {
+        return date <= new Date();
+      },
+      message: 'PO Date cannot be in the future'
+    }
+  },
+  customerDetails: {
+    customerName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    contactPerson: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    email: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    phoneNumber: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    address: {
+      type: Object,
+      required: true
+    }
+  },
+  items: {
+    type: [poItemSchema],
+    required: [true, 'At least one item is required'],
+    validate: {
+      validator: function(items) {
+        return items && items.length > 0;
+      },
+      message: 'At least one item is required'
+    }
+  },
+  totalAmount: {
+    type: Number,
+    required: [true, 'Total amount is required'],
+    min: [0, 'Total amount cannot be negative']
+  },
+  currency: {
+    type: String,
+    default: 'INR',
+    uppercase: true
+  },
+  status: {
+    type: String,
+    enum: ['draft', 'sent', 'acknowledged', 'in_progress', 'completed', 'cancelled'],
+    default: 'draft'
+  },
+  paymentTerms: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Payment terms cannot exceed 500 characters']
+  },
+  deliveryTerms: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Delivery terms cannot exceed 500 characters']
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: [1000, 'Notes cannot exceed 1000 characters']
+  },
+  // Main PO PDF attachment - REQUIRED
+  poPdf: {
+    originalName: {
+      type: String,
+      required: [true, 'PO PDF file name is required'],
+      trim: true
+    },
+    s3Key: {
+      type: String,
+      required: [true, 'PO PDF S3 key is required'],
+      trim: true
+    },
+    s3Url: {
+      type: String,
+      trim: true
+    },
+    fileSize: {
+      type: Number,
+      required: [true, 'PO PDF file size is required']
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  // Additional attachments
+  attachments: [poAttachmentSchema],
+  sentDate: {
+    type: Date
+  },
+  acknowledgedDate: {
+    type: Date
+  },
+  completedDate: {
+    type: Date
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    required: true
+  }
+}, {
+  timestamps: true,
+  toJSON: {
+    transform: function(doc, ret) {
+      ret.id = ret._id;
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  }
+});
+
+purchaseOrderSchema.pre('save', async function(next) {
+  console.log('🔄 Running pre-save middleware for purchase order...');
+  
+  if (!this.poNumber) {
+    const year = new Date().getFullYear();
+    const count = await mongoose.model('PurchaseOrder').countDocuments();
+    this.poNumber = `PO${year}${String(count + 1).padStart(4, '0')}`;
+    console.log('✅ Generated PO number:', this.poNumber);
+  }
+
+  if (this.items && this.items.length > 0) {
+    console.log('📊 Calculating totals for', this.items.length, 'items');
+    
+    this.items.forEach((item, index) => {
+      if (item.unitPrice && item.quantity) {
+        item.totalPrice = item.unitPrice * item.quantity;
+        console.log(`   Item ${index + 1}: ${item.quantity} x ₹${item.unitPrice} = ₹${item.totalPrice}`);
+      }
+    });
+    
+    this.totalAmount = this.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+    console.log('💰 Calculated total amount:', this.totalAmount);
+  }
+
+  next();
+});
+
+purchaseOrderSchema.pre('validate', function(next) {
+  console.log('🔍 Running pre-validate middleware for PO...');
+  
+  if (this.items && this.items.length > 0) {
+    this.items.forEach(item => {
+      if (!item.totalPrice && item.unitPrice && item.quantity) {
+        item.totalPrice = item.unitPrice * item.quantity;
+      }
+    });
+    
+    if (!this.totalAmount) {
+      this.totalAmount = this.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+    }
+  }
+  
+  next();
+});
+
+purchaseOrderSchema.index({ poNumber: 1 });
+purchaseOrderSchema.index({ leadId: 1 });
+purchaseOrderSchema.index({ quotationId: 1 });
+purchaseOrderSchema.index({ status: 1 });
+purchaseOrderSchema.index({ poDate: -1 });
+purchaseOrderSchema.index({ createdBy: 1 });
+purchaseOrderSchema.index({ 'items.licenseExpiryDate': 1 });
+
+purchaseOrderSchema.virtual('hasExpiredLicenses').get(function() {
+  const now = new Date();
+  return this.items.some(item => 
+    item.licenseExpiryDate && item.licenseExpiryDate < now
+  );
+});
+
+purchaseOrderSchema.virtual('expiringSoonLicenses').get(function() {
+  const now = new Date();
+  const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  
+  return this.items.filter(item => 
+    item.licenseExpiryDate && 
+    item.licenseExpiryDate > now && 
+    item.licenseExpiryDate <= thirtyDaysFromNow
+  );
+});
+
+purchaseOrderSchema.statics.getNextPONumber = async function() {
+  const year = new Date().getFullYear();
+  const count = await this.countDocuments();
+  return `PO${year}${String(count + 1).padStart(4, '0')}`;
+};
+
+purchaseOrderSchema.statics.findWithExpiringLicenses = async function(days = 30) {
+  const targetDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  
+  return this.find({
+    'items.licenseExpiryDate': {
+      $lte: targetDate,
+      $gte: new Date() 
+    },
+    status: { $in: ['acknowledged', 'in_progress', 'completed'] }
+  }).populate('leadId', 'customerName contactPerson email');
+};
+
+export default mongoose.model('PurchaseOrder', purchaseOrderSchema);
