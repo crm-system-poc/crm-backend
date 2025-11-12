@@ -271,7 +271,7 @@ purchaseOrderSchema.pre('validate', function(next) {
   next();
 });
 
-purchaseOrderSchema.index({ poNumber: 1 });
+// purchaseOrderSchema.index({ poNumber: 1 });
 purchaseOrderSchema.index({ leadId: 1 });
 purchaseOrderSchema.index({ quotationId: 1 });
 purchaseOrderSchema.index({ status: 1 });
