@@ -87,7 +87,8 @@ const loginAdmin = async (req, res) => {
           name: admin.name,
           email: admin.email,
           lastLogin: admin.lastLogin
-        }
+        },
+        token
       }
     });
   } catch (error) {
