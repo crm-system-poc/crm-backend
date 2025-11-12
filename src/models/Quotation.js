@@ -233,7 +233,7 @@ quotationSchema.pre('validate', function(next) {
   next();
 });
 
-quotationSchema.index({ quoteId: 1 });
+// quotationSchema.index({ quoteId: 1 });
 quotationSchema.index({ leadId: 1 });
 quotationSchema.index({ status: 1 });
 quotationSchema.index({ dateOfQuote: -1 });
