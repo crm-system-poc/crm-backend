@@ -1,5 +1,15 @@
 import Lead from "../models/Lead.js";
 
+const STATUS_LIST = [
+  "new",
+  "contacted",
+  "qualified",
+  "proposal_sent",
+  "negotiation",
+  "won",
+  "lost",
+];
+
 const createLead = async (req, res) => {
   try {
     const {
@@ -352,27 +362,43 @@ const deleteLead = async (req, res) => {
 
 const getLeadStats = async (req, res) => {
   try {
-    const stats = await Lead.aggregate([
+    const statsAgg = await Lead.aggregate([
       {
         $group: {
           _id: "$status",
           count: { $sum: 1 },
-          totalValue: { $sum: "$estimatedValue" },
+          totalValue: { $sum: { $ifNull: ["$estimatedValue", 0] } },
         },
       },
     ]);
 
+    const statsMap = {};
+    statsAgg.forEach((stat) => {
+      statsMap[stat._id] = {
+        status: stat._id,
+        count: stat.count,
+        totalValue: stat.totalValue,
+      };
+    });
+
+    const byStatus = STATUS_LIST.map((status) =>
+      statsMap[status] || { status, count: 0, totalValue: 0 }
+    );
+
     const totalLeads = await Lead.countDocuments();
-    const totalValue = await Lead.aggregate([
+
+    const totalValueResult = await Lead.aggregate([
       {
         $group: {
           _id: null,
-          total: { $sum: "$estimatedValue" },
+          total: { $sum: { $ifNull: ["$estimatedValue", 0] } },
         },
       },
     ]);
+    const totalValue = totalValueResult[0]?.total || 0;
 
-    const priorityStats = await Lead.aggregate([
+    const PRIORITY_LIST = ["low", "medium", "high"];
+    const priorityAgg = await Lead.aggregate([
       {
         $group: {
           _id: "$priority",
@@ -380,14 +406,21 @@ const getLeadStats = async (req, res) => {
         },
       },
     ]);
+    const priorityMap = {};
+    priorityAgg.forEach((item) => {
+      priorityMap[item._id] = { priority: item._id, count: item.count };
+    });
+    const byPriority = PRIORITY_LIST.map((priority) =>
+      priorityMap[priority] || { priority, count: 0 }
+    );
 
     res.json({
       success: true,
       data: {
-        byStatus: stats,
-        byPriority: priorityStats,
+        byStatus,
+        byPriority,
         totalLeads,
-        totalValue: totalValue[0]?.total || 0,
+        totalValue,
       },
     });
   } catch (error) {

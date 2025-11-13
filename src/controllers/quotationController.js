@@ -2,6 +2,51 @@ import Quotation from '../models/Quotation.js';
 import Lead from '../models/Lead.js';
 import { uploadToS3 } from '../utils/s3Utils.js';
 
+
+const getQuotationStats = async (req, res) => {
+  try {
+    console.log("📊 Fetching quotation stats…");
+
+    const totalQuotations = await Quotation.countDocuments();
+
+    const totalPending = await Quotation.countDocuments({ status: "draft" });
+    const totalApproved = await Quotation.countDocuments({ status: "accepted" });
+    const totalRejected = await Quotation.countDocuments({ status: "rejected" });
+    const totalExpired = await Quotation.countDocuments({ status: "expired" }); // optional
+
+    const totalWithPDF = await Quotation.countDocuments({ pdfFile: { $exists: true } });
+    const totalWithoutPDF = await Quotation.countDocuments({ pdfFile: { $exists: false } });
+
+    const totalData = await Quotation.aggregate([
+      { $group: { _id: null, totalGrand: { $sum: "$grandTotal" } } }
+    ]);
+
+    const totalGrandValue = totalData.length > 0 ? totalData[0].totalGrand : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalQuotations,
+        totalPending,
+        totalApproved,
+        totalRejected,
+        totalExpired,
+        totalWithPDF,
+        totalWithoutPDF,
+        totalGrandValue
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching quotation stats:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
 const createQuotation = async (req, res) => {
   try {
     const {
@@ -405,5 +450,6 @@ export {
   getAllQuotations,
   getQuotationById,
   updateQuotationStatus,
-  getQuotationsByLead
+  getQuotationsByLead,
+  getQuotationStats
 };

@@ -620,6 +620,79 @@ const getExpiringLicenses = async (req, res) => {
   }
 };
 
+
+const getPurchaseOrdersStats = async (req, res) => {
+  try {
+    console.log("📊 Fetching Purchase Order stats...");
+
+    const totalPOs = await PurchaseOrder.countDocuments();
+
+    const totalDraft = await PurchaseOrder.countDocuments({ status: "draft" });
+    const totalSent = await PurchaseOrder.countDocuments({ status: "sent" });
+    const totalAcknowledged = await PurchaseOrder.countDocuments({ status: "acknowledged" });
+    const totalInProgress = await PurchaseOrder.countDocuments({ status: "in_progress" });
+    const totalCompleted = await PurchaseOrder.countDocuments({ status: "completed" });
+    const totalCancelled = await PurchaseOrder.countDocuments({ status: "cancelled" });
+
+    const totalWithPDF = await PurchaseOrder.countDocuments({ poPdf: { $exists: true } });
+    const totalWithoutPDF = await PurchaseOrder.countDocuments({ poPdf: { $exists: false } });
+
+    const totalData = await PurchaseOrder.aggregate([
+      { $group: { _id: null, totalAmountSum: { $sum: "$totalAmount" } } }
+    ]);
+
+    const totalAmountSum = totalData.length > 0 ? totalData[0].totalAmountSum : 0;
+
+    const now = new Date();
+    const expiredLicenses = await PurchaseOrder.countDocuments({
+      "items.licenseExpiryDate": { $lt: now }
+    });
+
+    const next30Days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const expiringSoonLicenses = await PurchaseOrder.countDocuments({
+      "items.licenseExpiryDate": {
+        $gte: now,
+        $lte: next30Days
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        totalPOs,
+        status: {
+          totalDraft,
+          totalSent,
+          totalAcknowledged,
+          totalInProgress,
+          totalCompleted,
+          totalCancelled,
+        },
+        attachmentSummary: {
+          totalWithPDF,
+          totalWithoutPDF
+        },
+        licenses: {
+          expired: expiredLicenses,
+          expiringSoon: expiringSoonLicenses,
+        },
+        financials: {
+          totalAmountSum
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching PO stats:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
 export {
   createPurchaseOrder,
   addAttachment,
@@ -629,4 +702,6 @@ export {
   getPurchaseOrdersByLead,
   deletePurchaseOrder,
   getExpiringLicenses,
+  getPurchaseOrdersStats
+  
 };

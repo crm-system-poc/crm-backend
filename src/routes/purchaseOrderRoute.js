@@ -7,7 +7,8 @@ import {
   updatePurchaseOrderStatus,
   getPurchaseOrdersByLead,
   deletePurchaseOrder,
-  getExpiringLicenses
+  getExpiringLicenses,
+  getPurchaseOrdersStats
 } from '../controllers/purchaseOrderController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { uploadFields } from '../middlewares/uploadMiddleware.js';
@@ -20,6 +21,8 @@ router.post('/', uploadFields([
     { name: 'poPdf', maxCount: 1 },
     { name: 'attachments', maxCount: 10 } 
   ]), createPurchaseOrder);
+
+  router.get("/stats", getPurchaseOrdersStats)
   
   router.post('/:id/attachments', uploadFields([
     { name: 'attachment', maxCount: 1 }

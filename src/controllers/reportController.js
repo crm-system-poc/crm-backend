@@ -345,8 +345,108 @@ const getDashboardReports = async (req, res) => {
   }
 };
 
+const getAllExpireLicense = async (req, res) => {
+  try {
+    const today = new Date();
+
+    const next1Month = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const next2Month = new Date(today.getFullYear(), today.getMonth() + 2, 1);
+    const next3Month = new Date(today.getFullYear(), today.getMonth() + 3, 1);
+
+    const next1MonthEnd = new Date(next1Month.getFullYear(), next1Month.getMonth() + 1, 0, 23, 59, 59);
+    const next2MonthEnd = new Date(next2Month.getFullYear(), next2Month.getMonth() + 1, 0, 23, 59, 59);
+    const next3MonthEnd = new Date(next3Month.getFullYear(), next3Month.getMonth() + 1, 0, 23, 59, 59);
+
+    const licenseData = await PurchaseOrder.aggregate([
+      { $unwind: "$items" },
+
+      {
+        $match: {
+          "items.licenseType": { $ne: "perpetual" },
+          "items.licenseExpiryDate": { $gte: today }
+        }
+      },
+
+      {
+        $lookup: {
+          from: "leads",
+          localField: "leadId",
+          foreignField: "_id",
+          as: "leadInfo"
+        }
+      },
+
+      { $unwind: "$leadInfo" },
+
+      {
+        $project: {
+          productId: "$items.productId",
+          description: "$items.description",
+          customerName: "$leadInfo.customerName",
+          expiryDate: "$items.licenseExpiryDate",
+          totalPrice: "$items.totalPrice"
+        }
+      }
+    ]);
+
+    const expiringIn1 = [];
+    const expiringIn2 = [];
+    const expiringIn3 = [];
+
+    licenseData.forEach(item => {
+      const exp = new Date(item.expiryDate);
+
+      if (exp >= next1Month && exp <= next1MonthEnd) {
+        expiringIn1.push(item);
+      } else if (exp >= next2Month && exp <= next2MonthEnd) {
+        expiringIn2.push(item);
+      } else if (exp >= next3Month && exp <= next3MonthEnd) {
+        expiringIn3.push(item);
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        currentDate: today,
+        expiringIn: {
+          "1_month": {
+            month: next1Month.getMonth() + 1,
+            year: next1Month.getFullYear(),
+            count: expiringIn1.length,
+            licenses: expiringIn1
+          },
+          "2_months": {
+            month: next2Month.getMonth() + 1,
+            year: next2Month.getFullYear(),
+            count: expiringIn2.length,
+            licenses: expiringIn2
+          },
+          "3_months": {
+            month: next3Month.getMonth() + 1,
+            year: next3Month.getFullYear(),
+            count: expiringIn3.length,
+            licenses: expiringIn3
+          }
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Expiring license report error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
+
+
 export {
   getMonthlyLicenseExpiry,
   getSalesFunnelReport,
-  getDashboardReports
+  getDashboardReports,
+  getAllExpireLicense
 };
