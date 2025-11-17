@@ -81,12 +81,12 @@ const leadSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['new', 'contacted', 'qualified', 'proposal_sent', 'negotiation', 'won', 'lost'],
+    enum: ['new', 'contacted', 'qualified', 'proposal_sent', 'negotiation', 'oem_approval', 'won', 'lost'],
     default: 'new'
   },
   source: {
     type: String,
-    enum: ['website', 'referral', 'social_media', 'cold_call', 'email', 'other'],
+    enum: ['website', 'referral', 'social_media', 'cold_call', 'email', 'oem','other'],
     default: 'other'
   },
   notes: {
@@ -148,7 +148,7 @@ leadSchema.statics.isDuplicateLead = async function(customerName, excludeLeadId 
 leadSchema.statics.isEmailTakenForActiveLead = async function(email, excludeLeadId = null) {
   const lead = await this.findOne({ 
     email, 
-    status: { $in: ['new', 'contacted', 'qualified', 'proposal_sent', 'negotiation'] },
+    status: { $in: ['new', 'contacted', 'qualified', 'proposal_sent', 'negotiation', 'oem_approval'] },
     _id: { $ne: excludeLeadId } 
   });
   return !!lead;

@@ -138,16 +138,12 @@ const createQuotation = async (req, res) => {
       }
     }
 
-    const quoteId = await Quotation.getNextQuoteId();
-    quotationData.quoteId = quoteId;
-    console.log('🎫 Generated quoteId:', quoteId);
-
     console.log('💾 Saving quotation to database...');
     const quotation = await Quotation.create(quotationData);
-
+    
     await quotation.populate('leadId', 'customerName contactPerson email');
     await quotation.populate('createdBy', 'name email');
-
+    
     console.log('✅ Quotation created successfully:', quotation.quoteId);
 
     res.status(201).json({

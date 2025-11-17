@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import Counter from '../utils/Counter.js';
+
 
 const quotationItemSchema = new mongoose.Schema({
   productId: {
@@ -32,7 +34,7 @@ const quotationSchema = new mongoose.Schema({
   quoteId: {
     type: String,
     unique: true,
-    required: true,
+    required: false,
     trim: true,
     uppercase: true
   },
@@ -166,72 +168,95 @@ const quotationSchema = new mongoose.Schema({
   }
 });
 
-quotationSchema.pre('save', async function(next) {
-  console.log('🔄 Running pre-save middleware for quotation...');
-  
+
+quotationSchema.pre("save", async function (next) {
+  console.log("🔄 Running pre-save middleware for quotation...");
+
   if (!this.quoteId) {
     const year = new Date().getFullYear();
-    const count = await mongoose.model('Quotation').countDocuments();
-    this.quoteId = `QT${year}${String(count + 1).padStart(4, '0')}`;
-    console.log('✅ Generated quoteId:', this.quoteId);
-  }
 
-  if (this.items && this.items.length > 0) {
-    console.log('📊 Calculating totals for', this.items.length, 'items');
-    
-    this.items.forEach((item, index) => {
-      item.total = item.unitPrice * item.quantity;
-      console.log(`   Item ${index + 1}: ${item.quantity} x ₹${item.unitPrice} = ₹${item.total}`);
-    });
-    
-    this.totalQuoteValue = this.items.reduce((sum, item) => sum + item.total, 0);
-    this.taxAmount = (this.totalQuoteValue * this.taxRate) / 100;
-    this.grandTotal = this.totalQuoteValue + this.taxAmount;
-    
-    console.log('💰 Calculated totals:', {
-      subtotal: this.totalQuoteValue,
-      tax: this.taxAmount,
-      grandTotal: this.grandTotal
-    });
-  }
+    const counter = await Counter.findByIdAndUpdate(
+      { _id: "quotationId" },
+      { $inc: { sequenceValue: 1 } },
+      { new: true, upsert: true }
+    );
 
-  if (!this.validUntil) {
-    this.validUntil = new Date(Date.now() + this.validityDays * 24 * 60 * 60 * 1000);
-    console.log('📅 Set validUntil:', this.validUntil);
+    const seq = counter.sequenceValue;
+    this.quoteId = `QT${year}${String(seq).padStart(4, "0")}`;
+    console.log("📌 Generated unique quoteId:", this.quoteId);
   }
 
   next();
 });
 
-quotationSchema.pre('validate', function(next) {
+
+quotationSchema.pre("save", async function (next) {
+  console.log("🔄 Running pre-save middleware for quotation...");
+
+  if (!this.quoteId) {
+    const year = new Date().getFullYear();
+
+    const counter = await Counter.findByIdAndUpdate(
+      { _id: "quotationId" },
+      { $inc: { sequenceValue: 1 } },
+      { new: true, upsert: true }
+    );
+
+    const seq = counter.sequenceValue;
+    this.quoteId = `QT${year}${String(seq).padStart(4, "0")}`;
+    console.log("📌 Generated unique quoteId:", this.quoteId);
+  }
+
+  next();
+});
+
+
+quotationSchema.pre('validate', async function(next) {
   console.log('🔍 Running pre-validate middleware...');
-  
+
+  // 🆕 Generate quoteId BEFORE validation runs
+  if (!this.quoteId) {
+    const year = new Date().getFullYear();
+
+    const counter = await Counter.findByIdAndUpdate(
+      { _id: 'quotationId' },
+      { $inc: { sequenceValue: 1 } },
+      { new: true, upsert: true }
+    );
+
+    const seqNumber = counter.sequenceValue;
+    this.quoteId = `QT${year}${String(seqNumber).padStart(4, '0')}`;
+
+    console.log('🎯 Generated unique quoteId in pre-validate:', this.quoteId);
+  }
+
   if (this.items && this.items.length > 0) {
     this.items.forEach(item => {
       if (!item.total && item.unitPrice && item.quantity) {
         item.total = item.unitPrice * item.quantity;
       }
     });
-    
+
     if (!this.totalQuoteValue) {
       this.totalQuoteValue = this.items.reduce((sum, item) => sum + (item.total || 0), 0);
     }
-    
+
     if (!this.taxAmount && this.totalQuoteValue) {
       this.taxAmount = (this.totalQuoteValue * (this.taxRate || 18)) / 100;
     }
-    
+
     if (!this.grandTotal && this.totalQuoteValue && this.taxAmount) {
       this.grandTotal = this.totalQuoteValue + this.taxAmount;
     }
   }
-  
+
   if (!this.validUntil) {
     this.validUntil = new Date(Date.now() + (this.validityDays || 30) * 24 * 60 * 60 * 1000);
   }
 
   next();
 });
+
 
 // quotationSchema.index({ quoteId: 1 });
 quotationSchema.index({ leadId: 1 });

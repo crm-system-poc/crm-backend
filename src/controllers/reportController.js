@@ -349,21 +349,25 @@ const getAllExpireLicense = async (req, res) => {
   try {
     const today = new Date();
 
-    const next1Month = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-    const next2Month = new Date(today.getFullYear(), today.getMonth() + 2, 1);
-    const next3Month = new Date(today.getFullYear(), today.getMonth() + 3, 1);
+    // Query filters
+    const { filter = "monthly" } = req.query; 
+    // monthly | quarterly | yearly
 
-    const next1MonthEnd = new Date(next1Month.getFullYear(), next1Month.getMonth() + 1, 0, 23, 59, 59);
-    const next2MonthEnd = new Date(next2Month.getFullYear(), next2Month.getMonth() + 1, 0, 23, 59, 59);
-    const next3MonthEnd = new Date(next3Month.getFullYear(), next3Month.getMonth() + 1, 0, 23, 59, 59);
+    // Date Ranges
+    const past3MonthsStart = new Date(today.getFullYear(), today.getMonth() - 3, 1);
+    const next3MonthsEnd = new Date(today.getFullYear(), today.getMonth() + 4, 0, 23, 59, 59);
 
-    const licenseData = await PurchaseOrder.aggregate([
+    // Fetch all license items (non-perpetual) in past 3 months OR next 3 months
+    const licenses = await PurchaseOrder.aggregate([
       { $unwind: "$items" },
 
       {
         $match: {
           "items.licenseType": { $ne: "perpetual" },
-          "items.licenseExpiryDate": { $gte: today }
+          "items.licenseExpiryDate": {
+            $gte: past3MonthsStart,
+            $lte: next3MonthsEnd
+          }
         }
       },
 
@@ -380,66 +384,133 @@ const getAllExpireLicense = async (req, res) => {
 
       {
         $project: {
+          _id: 0,
+          purchaseOrderId: "$_id",
           productId: "$items.productId",
+          ponumber: "$poNumber", // <-- This is the update: use "ponumber" instead of "$_poNumber"
           description: "$items.description",
-          customerName: "$leadInfo.customerName",
+          licenseType: "$items.licenseType",
           expiryDate: "$items.licenseExpiryDate",
-          totalPrice: "$items.totalPrice"
+          totalPrice: "$items.totalPrice",
+          customerName: "$leadInfo.customerName",
+          customerId: "$leadInfo._id"
         }
       }
     ]);
 
-    const expiringIn1 = [];
-    const expiringIn2 = [];
-    const expiringIn3 = [];
+    // ---- DIVIDE INTO EXPIRED vs EXPIRING SOON ----
+    const expired = [];
+    const expiringSoon = [];
 
-    licenseData.forEach(item => {
+    licenses.forEach(item => {
       const exp = new Date(item.expiryDate);
 
-      if (exp >= next1Month && exp <= next1MonthEnd) {
-        expiringIn1.push(item);
-      } else if (exp >= next2Month && exp <= next2MonthEnd) {
-        expiringIn2.push(item);
-      } else if (exp >= next3Month && exp <= next3MonthEnd) {
-        expiringIn3.push(item);
+      if (exp < today) {
+        expired.push(item);
+      } else {
+        expiringSoon.push(item);
       }
     });
+
+    // ---- GROUPING FUNCTIONS ----
+    const groupMonthly = (items) => {
+      return items.reduce((acc, item) => {
+        const d = new Date(item.expiryDate);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+        if (!acc[key]) acc[key] = {
+          month: d.getMonth() + 1,
+          year: d.getFullYear(),
+          label: d.toLocaleString("default", { month: "long", year: "numeric" }),
+          count: 0,
+          items: []
+        };
+
+        acc[key].count++;
+        acc[key].items.push(item);
+        return acc;
+
+      }, {});
+    };
+
+    const groupQuarterly = (items) => {
+      return items.reduce((acc, item) => {
+        const d = new Date(item.expiryDate);
+        const q = Math.ceil((d.getMonth() + 1) / 3);
+        const key = `${d.getFullYear()}-Q${q}`;
+
+        if (!acc[key]) acc[key] = {
+          quarter: q,
+          year: d.getFullYear(),
+          label: `Q${q} ${d.getFullYear()}`,
+          count: 0,
+          items: []
+        };
+
+        acc[key].count++;
+        acc[key].items.push(item);
+        return acc;
+
+      }, {});
+    };
+
+    const groupYearly = (items) => {
+      return items.reduce((acc, item) => {
+        const d = new Date(item.expiryDate);
+        const key = `${d.getFullYear()}`;
+
+        if (!acc[key]) acc[key] = {
+          year: d.getFullYear(),
+          label: `${d.getFullYear()}`,
+          count: 0,
+          items: []
+        };
+
+        acc[key].count++;
+        acc[key].items.push(item);
+        return acc;
+
+      }, {});
+    };
+
+    // ---- APPLY FILTER (monthly/quarterly/yearly) ----
+    const grouping = 
+      filter === "yearly" ? groupYearly :
+      filter === "quarterly" ? groupQuarterly :
+      groupMonthly; // default monthly
+
+    const finalExpired = grouping(expired);
+    const finalExpiringSoon = grouping(expiringSoon);
 
     res.json({
       success: true,
       data: {
-        currentDate: today,
-        expiringIn: {
-          "1_month": {
-            month: next1Month.getMonth() + 1,
-            year: next1Month.getFullYear(),
-            count: expiringIn1.length,
-            licenses: expiringIn1
-          },
-          "2_months": {
-            month: next2Month.getMonth() + 1,
-            year: next2Month.getFullYear(),
-            count: expiringIn2.length,
-            licenses: expiringIn2
-          },
-          "3_months": {
-            month: next3Month.getMonth() + 1,
-            year: next3Month.getFullYear(),
-            count: expiringIn3.length,
-            licenses: expiringIn3
-          }
-        }
+        filterType: filter,
+        dateRange: {
+          fromPast3Months: past3MonthsStart,
+          toNext3Months: next3MonthsEnd
+        },
+
+        summary: {
+          totalExpired: expired.length,
+          totalExpiringSoon: expiringSoon.length,
+          totalLicenses: expired.length + expiringSoon.length
+        },
+
+        expired: finalExpired,
+        expiringSoon: finalExpiringSoon
       }
     });
 
   } catch (error) {
-    console.error("❌ Expiring license report error:", error);
+    console.error("❌ getAllExpiredLicense Error:", error);
     res.status(500).json({
       success: false,
       error: error.message
     });
   }
 };
+
 
 
 
