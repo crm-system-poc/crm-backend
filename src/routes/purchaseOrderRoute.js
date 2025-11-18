@@ -19,6 +19,7 @@ router.use(authMiddleware);
 
 router.post('/', uploadFields([
     { name: 'poPdf', maxCount: 1 },
+    { name: 'licenseFile', maxCount: 1 },
     { name: 'attachments', maxCount: 10 } 
   ]), createPurchaseOrder);
 

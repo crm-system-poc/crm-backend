@@ -169,52 +169,30 @@ const quotationSchema = new mongoose.Schema({
 });
 
 
-quotationSchema.pre("save", async function (next) {
-  console.log("🔄 Running pre-save middleware for quotation...");
+// quotationSchema.pre("save", async function (next) {
+//   console.log("🔄 Running pre-save middleware for quotation...");
 
-  if (!this.quoteId) {
-    const year = new Date().getFullYear();
+//   if (!this.quoteId) {
+//     const year = new Date().getFullYear();
 
-    const counter = await Counter.findByIdAndUpdate(
-      { _id: "quotationId" },
-      { $inc: { sequenceValue: 1 } },
-      { new: true, upsert: true }
-    );
+//     const counter = await Counter.findByIdAndUpdate(
+//       { _id: "quotationId" },
+//       { $inc: { sequenceValue: 1 } },
+//       { new: true, upsert: true }
+//     );
 
-    const seq = counter.sequenceValue;
-    this.quoteId = `QT${year}${String(seq).padStart(4, "0")}`;
-    console.log("📌 Generated unique quoteId:", this.quoteId);
-  }
+//     const seq = counter.sequenceValue;
+//     this.quoteId = `QT${year}${String(seq).padStart(4, "0")}`;
+//     console.log("📌 Generated unique quoteId:", this.quoteId);
+//   }
 
-  next();
-});
-
-
-quotationSchema.pre("save", async function (next) {
-  console.log("🔄 Running pre-save middleware for quotation...");
-
-  if (!this.quoteId) {
-    const year = new Date().getFullYear();
-
-    const counter = await Counter.findByIdAndUpdate(
-      { _id: "quotationId" },
-      { $inc: { sequenceValue: 1 } },
-      { new: true, upsert: true }
-    );
-
-    const seq = counter.sequenceValue;
-    this.quoteId = `QT${year}${String(seq).padStart(4, "0")}`;
-    console.log("📌 Generated unique quoteId:", this.quoteId);
-  }
-
-  next();
-});
+//   next();
+// });
 
 
 quotationSchema.pre('validate', async function(next) {
   console.log('🔍 Running pre-validate middleware...');
 
-  // 🆕 Generate quoteId BEFORE validation runs
   if (!this.quoteId) {
     const year = new Date().getFullYear();
 

@@ -4,9 +4,11 @@ import {
   loginAdmin,
   getProfile,
   updateProfile,
-  changePassword,logoutAdmin
+  changePassword,logoutAdmin,
+  createUser,
+  getAllUsers
 } from '../controllers/adminController.js';
-import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { authMiddleware , authorize } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -19,5 +21,20 @@ router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
 router.put('/change-password', changePassword);
 router.post('/logout', logoutAdmin);
+
+
+router.post(
+  "/create-user",
+  authMiddleware,
+  authorize("manageLeads", "create"), 
+  createUser
+);
+
+router.get(
+  "/users",
+  authMiddleware,
+  authorize("manageLeads", "read"),
+  getAllUsers
+);
 
 export default router;

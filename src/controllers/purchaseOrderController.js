@@ -161,6 +161,31 @@ const createPurchaseOrder = async (req, res) => {
     }
 
     const additionalAttachments = [];
+
+    if (req.files.licenseFile && req.files.licenseFile.length > 0) {
+      console.log("📄 Processing license file attachment");
+      for (const file of req.files.licenseFile) {
+        try {
+          const folder = `purchase-orders/${req.admin.id}/attachments`;
+          const s3UploadResult = await uploadToS3(file, folder);
+
+          additionalAttachments.push({
+            type: "license_file",
+            originalName: s3UploadResult.originalName,
+            s3Key: s3UploadResult.key,
+            s3Url: s3UploadResult.url,
+            fileSize: s3UploadResult.fileSize,
+            uploadedAt: new Date(),
+            notes: "License file uploaded during PO creation",
+          });
+
+          console.log("✅ License file uploaded:", s3UploadResult.originalName);
+        } catch (uploadError) {
+          console.error("⚠️ Failed to upload license file:", uploadError.message);
+        }
+      }
+    }
+
     if (req.files.attachments && req.files.attachments.length > 0) {
       console.log(
         "📎 Processing additional attachments:",

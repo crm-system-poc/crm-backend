@@ -348,6 +348,8 @@ const getDashboardReports = async (req, res) => {
 const getAllExpireLicense = async (req, res) => {
   try {
     const today = new Date();
+    // Zero out time for correct date-only comparisons
+    today.setHours(0, 0, 0, 0);
 
     // Query filters
     const { filter = "monthly" } = req.query; 
@@ -404,8 +406,14 @@ const getAllExpireLicense = async (req, res) => {
 
     licenses.forEach(item => {
       const exp = new Date(item.expiryDate);
-
-      if (exp < today) {
+      exp.setHours(0, 0, 0, 0); // ignore time, use date only
+      /*
+        Changes made:
+        - Previously, if (exp < today): expired
+        - Requirement: include current date expiry as expired
+        => move to expired if (exp <= today)
+      */
+      if (exp <= today) {
         expired.push(item);
       } else {
         expiringSoon.push(item);

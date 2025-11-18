@@ -47,3 +47,42 @@ export const authMiddleware = async (req, res, next) => {
     });
   }
 };
+
+export const authorize = (perm, action = "read") => {
+  return (req, res, next) => {
+    const admin = req.admin;
+
+    // Allow full access to SuperAdmin
+    if (admin.role === "SuperAdmin") {
+      return next();
+    }
+
+    // Ensure permissions exists to avoid crash
+    if (!admin.permissions) {
+      return res.status(403).json({
+        success: false,
+        message: "Permissions not assigned by Admin"
+      });
+    }
+
+    const permissionFlag = admin.permissions[perm];
+    const actionPermissions = admin.permissions[perm + "Actions"];
+
+    if (!permissionFlag) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have module access"
+      });
+    }
+
+    if (!actionPermissions || !actionPermissions[action]) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have action access"
+      });
+    }
+
+    next();
+  };
+};
+

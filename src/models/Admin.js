@@ -1,6 +1,31 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+
+const actionSchema = new mongoose.Schema({
+  create: { type: Boolean, default: false },
+  read:   { type: Boolean, default: false },
+  update: { type: Boolean, default: false },
+  delete: { type: Boolean, default: false },
+}, { _id: false });
+
+const permissionSchema = new mongoose.Schema({
+  manageHome: { type: Boolean, default: false },
+
+  manageLeads: { type: Boolean, default: false },
+  leadsActions: actionSchema,
+
+  manageQuotation: { type: Boolean, default: false },
+  quotationActions: actionSchema,
+
+  managePurchaseOrder: { type: Boolean, default: false },
+  purchaseOrderActions: actionSchema,
+
+  manageReport: { type: Boolean, default: false },
+  reportActions: actionSchema,
+}, { _id: false });
+
+
 const adminSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -34,7 +59,15 @@ const adminSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: null
-  }
+  },
+  role: {
+    type: String,
+    enum: ["SuperAdmin", "User"],
+    default: "User"
+  },
+  isActive: { type: Boolean, default: true },
+  permissions: permissionSchema,
+  
 }, {
   timestamps: true,
   toJSON: {

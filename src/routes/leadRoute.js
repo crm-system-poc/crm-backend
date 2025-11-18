@@ -7,18 +7,18 @@ import {
   deleteLead,
   getLeadStats,getLeadsByCustomer
 } from '../controllers/leadController.js';
-import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { authMiddleware , authorize } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
 router.use(authMiddleware);
 
 router.post('/', createLead);
-router.get('/', getAllLeads);
+router.get('/', authorize("manageLeads", "read"), getAllLeads);
 router.get('/stats', getLeadStats);
 router.get('/customer/:customerIdentifier', getLeadsByCustomer);
 router.get('/:id', getLeadById);
-router.put('/:id', updateLead);
+router.put('/:id', authorize("manageLeads", "update"),  updateLead);
 router.delete('/:id', deleteLead);
 
 export default router;

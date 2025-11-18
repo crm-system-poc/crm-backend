@@ -23,7 +23,7 @@ const getCookieOptions = () => {
 
 const setupAdmin = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, phone } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -32,10 +32,51 @@ const setupAdmin = async (req, res) => {
       });
     }
 
-    const admin = await Admin.createAdmin({
+    // Check existing email
+    const existingEmail = await Admin.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).json({
+        success: false,
+        error: "Email already exists"
+      });
+    }
+
+    // Check existing phone (optional validation)
+    if (phone) {
+      const existingPhone = await Admin.findOne({ phone });
+      if (existingPhone) {
+        return res.status(400).json({
+          success: false,
+          error: "Phone already exists"
+        });
+      }
+    }
+
+    const adminCount = await Admin.countDocuments();
+
+    const defaultPermissions = {
+      manageHome: true,
+
+      manageLeads: true,
+      leadsActions: { create: true, read: true, update: true, delete: true },
+
+      manageQuotation: true,
+      quotationActions: { create: true, read: true, update: true, delete: true },
+
+      managePurchaseOrder: true,
+      purchaseOrderActions: { create: true, read: true, update: true, delete: true },
+
+      manageReport: true,
+      reportActions: { create: true, read: true, update: true, delete: true },
+    };
+
+    const admin = await Admin.create({
       name,
       email,
-      password
+      phone,
+      password,
+      role: adminCount === 0 ? "SuperAdmin" : "User",
+      permissions: adminCount === 0 ? defaultPermissions : {}
     });
 
     const token = generateToken(admin._id);
@@ -60,6 +101,62 @@ const setupAdmin = async (req, res) => {
     });
   }
 };
+
+
+
+const createUser = async (req, res) => {
+  try {
+    if (req.admin.role !== "SuperAdmin") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const { name, email, phone, password, permissions } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Name, email & password are required'
+      });
+    }
+
+    // Email must be unique
+    const existingEmail = await Admin.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).json({ error: "Email already exists" });
+    }
+
+    // Phone must be unique
+    if (phone) {
+      const existingPhone = await Admin.findOne({ phone });
+      if (existingPhone) {
+        return res.status(400).json({ error: "Phone already exists" });
+      }
+    }
+
+    const user = await Admin.create({
+      name,
+      email,
+      phone,
+      password,
+      role: "User",
+      permissions: permissions || {} // if no permissions assigned yet
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "User created successfully",
+      user
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
 
 const loginAdmin = async (req, res) => {
   try {
@@ -97,6 +194,12 @@ const loginAdmin = async (req, res) => {
       error: error.message
     });
   }
+};
+
+
+ const getAllUsers = async (_, res) => {
+  const users = await Admin.find({ role: "User" });
+  res.json(users);
 };
 
 const getProfile = async (req, res) => {
@@ -198,5 +301,7 @@ export {
   getProfile,
   updateProfile,
   changePassword,
-  logoutAdmin
+  logoutAdmin, 
+  createUser,
+  getAllUsers
 };
