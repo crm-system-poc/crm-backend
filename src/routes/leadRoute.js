@@ -14,11 +14,11 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/', createLead);
-router.get('/', authorize("manageLeads", "read"), getAllLeads);
+router.get('/', getAllLeads);
 router.get('/stats', getLeadStats);
 router.get('/customer/:customerIdentifier', getLeadsByCustomer);
 router.get('/:id', getLeadById);
-router.put('/:id', authorize("manageLeads", "update"),  updateLead);
+router.put('/:id',  updateLead);
 router.delete('/:id', deleteLead);
 
 export default router;
