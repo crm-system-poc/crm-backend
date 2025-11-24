@@ -5,10 +5,15 @@ import {
   getProfile,
   updateProfile,
   changePassword,logoutAdmin,
-  createUser,
-  getAllUsers
+  
 } from '../controllers/adminController.js';
 import { authMiddleware , authorize } from '../middlewares/authMiddleware.js';
+
+import {  createUser,
+  getAllUsers,
+  getUserById,
+  updatePermissions,
+  deleteUserById   } from "../controllers/userController.js"
 
 const router = express.Router();
 
@@ -22,19 +27,39 @@ router.put('/profile', updateProfile);
 router.put('/change-password', changePassword);
 router.post('/logout', logoutAdmin);
 
+// Get All Users
+router.get(
+  "/users",
+  authorize("managePlatformUsers", "read"),
+  getAllUsers
+);
 
+// Create user
 router.post(
   "/create-user",
-  authMiddleware,
-  authorize("manageLeads", "create"), 
+  authorize("managePlatformUsers", "create"),
   createUser
 );
 
+// Get user by ID
 router.get(
-  "/users",
-  authMiddleware,
-  authorize("manageLeads", "read"),
-  getAllUsers
+  "/users/:id",
+  authorize("managePlatformUsers", "read"),
+  getUserById
+);
+
+// Update user permissions
+router.put(
+  "/users/:id/permissions",
+  authorize("managePlatformUsers", "update"),
+  updatePermissions
+);
+
+// Delete user by ID
+router.delete(
+  "/users/:id",
+  authorize("managePlatformUsers", "delete"),
+  deleteUserById
 );
 
 export default router;

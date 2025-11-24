@@ -13,12 +13,12 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
-router.post('/', createLead);
-router.get('/', getAllLeads);
-router.get('/stats', getLeadStats);
-router.get('/customer/:customerIdentifier', getLeadsByCustomer);
-router.get('/:id', getLeadById);
-router.put('/:id',  updateLead);
-router.delete('/:id', deleteLead);
+router.post('/', authorize("manageLeads", "create"), createLead);
+router.get('/', authorize("manageLeads", "read"), getAllLeads);
+router.get('/stats', authorize("manageLeads", "read"), getLeadStats);
+router.get('/customer/:customerIdentifier', authorize("manageLeads", "read"), getLeadsByCustomer);
+router.get('/:id',authorize("manageLeads", "read"), getLeadById);
+router.put('/:id', authorize("manageLeads", "update"), updateLead);
+router.delete('/:id',authorize("manageLeads", "delete"), deleteLead);
 
 export default router;

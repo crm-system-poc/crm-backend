@@ -10,7 +10,7 @@ import {
   getExpiringLicenses,
   getPurchaseOrdersStats
 } from '../controllers/purchaseOrderController.js';
-import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { authMiddleware , authorize} from '../middlewares/authMiddleware.js';
 import { uploadFields } from '../middlewares/uploadMiddleware.js';
 
 const router = express.Router();
@@ -23,22 +23,22 @@ router.post('/', uploadFields([
     { name: 'attachments', maxCount: 10 } 
   ]), createPurchaseOrder);
 
-  router.get("/stats", getPurchaseOrdersStats)
+  router.get("/stats", authorize("managePurchaseOrder", "read"), getPurchaseOrdersStats)
   
-  router.post('/:id/attachments', uploadFields([
+  router.post('/:id/attachments', authorize("managePurchaseOrder", "create"), uploadFields([
     { name: 'attachment', maxCount: 1 }
   ]), addAttachment);
 
-router.get('/', getAllPurchaseOrders);
+router.get('/', authorize("managePurchaseOrder", "read"), getAllPurchaseOrders);
 
-router.get('/expiring-licenses', getExpiringLicenses);
+router.get('/expiring-licenses', authorize("managePurchaseOrder", "read"), getExpiringLicenses);
 
-router.get('/lead/:leadId', getPurchaseOrdersByLead);
+router.get('/lead/:leadId', authorize("managePurchaseOrder", "read"), getPurchaseOrdersByLead);
 
-router.get('/:id', getPurchaseOrderById);
+router.get('/:id', authorize("managePurchaseOrder", "read"), getPurchaseOrderById);
 
-router.put('/:id/status', updatePurchaseOrderStatus);
+router.put('/:id/status', authorize("managePurchaseOrder", "update"), updatePurchaseOrderStatus);
 
-router.delete('/:id', deletePurchaseOrder);
+router.delete('/:id', authorize("managePurchaseOrder", "delete"), deletePurchaseOrder);
 
 export default router;

@@ -23,6 +23,13 @@ const permissionSchema = new mongoose.Schema({
 
   manageReport: { type: Boolean, default: false },
   reportActions: actionSchema,
+ 
+  managePlatformUsers: { type: Boolean, default: false },
+  platformUserActions: actionSchema,
+
+  manageProducts: { type: Boolean, default: false },
+  productsActions: actionSchema,
+
 }, { _id: false });
 
 
@@ -60,11 +67,13 @@ const adminSchema = new mongoose.Schema({
     trim: true,
     default: null
   },
+  // system role
   role: {
     type: String,
     enum: ["SuperAdmin", "User"],
     default: "User"
   },
+  // role-> sale Executive, telecaller, support Executive,
   isActive: { type: Boolean, default: true },
   permissions: permissionSchema,
   
@@ -108,22 +117,19 @@ adminSchema.statics.createAdmin = async function(adminData) {
   return await this.create(adminData);
 };
 
-adminSchema.statics.findByCredentials = async function(email, password) {
-  const admin = await this.findOne({ email }).select('+password');
-  
-  if (!admin) {
-    throw new Error('Invalid login credentials');
-  }
+adminSchema.statics.findByCredentials = async function (email, password) {
+  const admin = await this.findOne({ email })
+    .select("+password name permissions role isActive");
 
-  const isPasswordMatch = await admin.comparePassword(password);
-  
-  if (!isPasswordMatch) {
-    throw new Error('Invalid login credentials');
-  }
+  if (!admin) throw new Error("Invalid login credentials");
+
+  const isMatch = await admin.comparePassword(password);
+  if (!isMatch) throw new Error("Invalid login credentials");
 
   await admin.updateOne({ lastLogin: new Date() });
 
   return admin;
 };
+
 
 export default mongoose.model('Admin', adminSchema);

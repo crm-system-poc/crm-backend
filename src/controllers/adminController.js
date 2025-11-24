@@ -1,23 +1,22 @@
-import Admin from '../models/Admin.js';
-import jwt from 'jsonwebtoken';
+import Admin from "../models/Admin.js";
+import jwt from "jsonwebtoken";
+import { defaultPermissions } from "../utils/defaultPermissions.js";
 
 const generateToken = (adminId) => {
-  return jwt.sign(
-    { id: adminId }, 
-    process.env.JWT_SECRET, 
-    { expiresIn: process.env.TOKEN_EXPIRY || '7d' }
-  );
+  return jwt.sign({ id: adminId }, process.env.JWT_SECRET, {
+    expiresIn: process.env.TOKEN_EXPIRY || "7d",
+  });
 };
 
 const getCookieOptions = () => {
-  const isProduction = process.env.NODE_ENV === 'production';
-  
+  const isProduction = process.env.NODE_ENV === "production";
+
   return {
     httpOnly: true,
     secure: isProduction,
-    sameSite: isProduction ? 'none' : 'lax', 
+    sameSite: isProduction ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/'
+    path: "/",
   };
 };
 
@@ -28,7 +27,7 @@ const setupAdmin = async (req, res) => {
     if (!name || !email || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Please provide name, email and password'
+        error: "Please provide name, email and password",
       });
     }
 
@@ -37,7 +36,7 @@ const setupAdmin = async (req, res) => {
     if (existingEmail) {
       return res.status(400).json({
         success: false,
-        error: "Email already exists"
+        error: "Email already exists",
       });
     }
 
@@ -47,28 +46,13 @@ const setupAdmin = async (req, res) => {
       if (existingPhone) {
         return res.status(400).json({
           success: false,
-          error: "Phone already exists"
+          error: "Phone already exists",
         });
       }
     }
 
     const adminCount = await Admin.countDocuments();
 
-    const defaultPermissions = {
-      manageHome: true,
-
-      manageLeads: true,
-      leadsActions: { create: true, read: true, update: true, delete: true },
-
-      manageQuotation: true,
-      quotationActions: { create: true, read: true, update: true, delete: true },
-
-      managePurchaseOrder: true,
-      purchaseOrderActions: { create: true, read: true, update: true, delete: true },
-
-      manageReport: true,
-      reportActions: { create: true, read: true, update: true, delete: true },
-    };
 
     const admin = await Admin.create({
       name,
@@ -76,87 +60,31 @@ const setupAdmin = async (req, res) => {
       phone,
       password,
       role: adminCount === 0 ? "SuperAdmin" : "User",
-      permissions: adminCount === 0 ? defaultPermissions : {}
+      permissions: adminCount === 0 ? defaultPermissions : {},
     });
 
     const token = generateToken(admin._id);
 
-    res.cookie('adminToken', token, getCookieOptions());
+    res.cookie("adminToken", token, getCookieOptions());
 
     res.status(201).json({
       success: true,
-      message: 'Admin account created successfully',
+      message: "Admin account created successfully",
       data: {
         admin: {
           id: admin._id,
           name: admin.name,
-          email: admin.email
-        }
-      }
+          email: admin.email,
+        },
+      },
     });
   } catch (error) {
     res.status(400).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
-
-
-
-const createUser = async (req, res) => {
-  try {
-    if (req.admin.role !== "SuperAdmin") {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const { name, email, phone, password, permissions } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Name, email & password are required'
-      });
-    }
-
-    // Email must be unique
-    const existingEmail = await Admin.findOne({ email });
-    if (existingEmail) {
-      return res.status(400).json({ error: "Email already exists" });
-    }
-
-    // Phone must be unique
-    if (phone) {
-      const existingPhone = await Admin.findOne({ phone });
-      if (existingPhone) {
-        return res.status(400).json({ error: "Phone already exists" });
-      }
-    }
-
-    const user = await Admin.create({
-      name,
-      email,
-      phone,
-      password,
-      role: "User",
-      permissions: permissions || {} // if no permissions assigned yet
-    });
-
-    res.status(201).json({
-      success: true,
-      message: "User created successfully",
-      user
-    });
-
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error.message
-    });
-  }
-};
-
-
 
 const loginAdmin = async (req, res) => {
   try {
@@ -165,55 +93,60 @@ const loginAdmin = async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Please provide email and password'
+        error: "Please provide email and password",
       });
     }
 
     const admin = await Admin.findByCredentials(email, password);
-    
-    const token = generateToken(admin._id);
 
-    res.cookie('adminToken', token, getCookieOptions());
+    const token = generateToken(admin._id);
+    res.cookie("adminToken", token, getCookieOptions());
+
+    // Ensure SuperAdmin always has full permissions
+    if (
+      admin.role === "SuperAdmin" &&
+      (!admin.permissions || Object.keys(admin.permissions).length === 0)
+    ) {
+      admin.permissions = defaultPermissions;
+      await admin.save(); // 🔥 save updated permissions in DB
+    }
 
     res.json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       data: {
         admin: {
           id: admin._id,
           name: admin.name,
           email: admin.email,
-          lastLogin: admin.lastLogin
+          phone: admin.phone,
+          role: admin.role,
+          permissions: admin.permissions,
+          lastLogin: admin.lastLogin,
         },
-        token
-      }
+        token,
+      },
     });
   } catch (error) {
     res.status(401).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
-};
-
-
- const getAllUsers = async (_, res) => {
-  const users = await Admin.find({ role: "User" });
-  res.json(users);
 };
 
 const getProfile = async (req, res) => {
   try {
     const admin = await Admin.findById(req.admin.id);
-    
+
     res.json({
       success: true,
-      data: admin
+      data: admin,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -223,22 +156,22 @@ const updateProfile = async (req, res) => {
     const { name, phone, profileImage } = req.body;
 
     const admin = await Admin.findById(req.admin.id);
-    
+
     if (name) admin.name = name;
     if (phone) admin.phone = phone;
     if (profileImage) admin.profileImage = profileImage;
-    
+
     await admin.save();
 
     res.json({
       success: true,
-      message: 'Profile updated successfully',
-      data: admin
+      message: "Profile updated successfully",
+      data: admin,
     });
   } catch (error) {
     res.status(400).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -250,17 +183,17 @@ const changePassword = async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
         success: false,
-        error: 'Please provide current and new password'
+        error: "Please provide current and new password",
       });
     }
 
-    const admin = await Admin.findById(req.admin.id).select('+password');
-    
+    const admin = await Admin.findById(req.admin.id).select("+password");
+
     const isMatch = await admin.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(400).json({
         success: false,
-        error: 'Current password is incorrect'
+        error: "Current password is incorrect",
       });
     }
 
@@ -269,28 +202,28 @@ const changePassword = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Password changed successfully'
+      message: "Password changed successfully",
     });
   } catch (error) {
     res.status(400).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
 
 const logoutAdmin = async (req, res) => {
   try {
-    res.clearCookie('adminToken', getCookieOptions());
-    
+    res.clearCookie("adminToken", getCookieOptions());
+
     res.json({
       success: true,
-      message: 'Logged out successfully'
+      message: "Logged out successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -301,7 +234,5 @@ export {
   getProfile,
   updateProfile,
   changePassword,
-  logoutAdmin, 
-  createUser,
-  getAllUsers
+  logoutAdmin,
 };
