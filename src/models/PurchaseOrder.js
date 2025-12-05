@@ -85,7 +85,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   poNumber: {
     type: String,
     unique: true,
-    required: [true, 'PO Number is required'],
+    required: [true, 'PO Number is required (enter as on customer PO)'],
     trim: true,
     uppercase: true
   },
@@ -213,7 +213,21 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
     required: true
+  },
+  assignedUsers: [
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      required: true
+    },
+    permissions: {
+      read: { type: Boolean, default: true },
+      update: { type: Boolean, default: false },
+      delete: { type: Boolean, default: false }
+    }
   }
+]
 }, {
   timestamps: true,
   toJSON: {
@@ -226,43 +240,34 @@ const purchaseOrderSchema = new mongoose.Schema({
   }
 });
 
+// Remove auto-generation of poNumber - customer PO number must be entered manually!
 purchaseOrderSchema.pre('save', async function(next) {
   console.log('🔄 Running pre-save middleware for purchase order...');
-  
-  if (!this.poNumber) {
-    const year = new Date().getFullYear();
-    const count = await mongoose.model('PurchaseOrder').countDocuments();
-    this.poNumber = `PO${year}${String(count + 1).padStart(4, '0')}`;
-    console.log('✅ Generated PO number:', this.poNumber);
-  }
-
+  // No longer generates PO number automatically
   if (this.items && this.items.length > 0) {
     console.log('📊 Calculating totals for', this.items.length, 'items');
-    
     this.items.forEach((item, index) => {
       if (item.unitPrice && item.quantity) {
         item.totalPrice = item.unitPrice * item.quantity;
         console.log(`   Item ${index + 1}: ${item.quantity} x ₹${item.unitPrice} = ₹${item.totalPrice}`);
       }
     });
-    
     this.totalAmount = this.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
     console.log('💰 Calculated total amount:', this.totalAmount);
   }
-
   next();
 });
 
 purchaseOrderSchema.pre('validate', function(next) {
   console.log('🔍 Running pre-validate middleware for PO...');
-  
+
   if (this.items && this.items.length > 0) {
     this.items.forEach(item => {
       if (!item.totalPrice && item.unitPrice && item.quantity) {
         item.totalPrice = item.unitPrice * item.quantity;
       }
     });
-    
+
     if (!this.totalAmount) {
       this.totalAmount = this.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
     }
@@ -297,11 +302,8 @@ purchaseOrderSchema.virtual('expiringSoonLicenses').get(function() {
   );
 });
 
-purchaseOrderSchema.statics.getNextPONumber = async function() {
-  const year = new Date().getFullYear();
-  const count = await this.countDocuments();
-  return `PO${year}${String(count + 1).padStart(4, '0')}`;
-};
+// Remove the getNextPONumber static - PO number is entered manually
+// purchaseOrderSchema.statics.getNextPONumber = async function() { ... }
 
 purchaseOrderSchema.statics.findWithExpiringLicenses = async function(days = 30) {
   const targetDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);

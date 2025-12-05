@@ -20,7 +20,7 @@ export const authMiddleware = async (req, res, next) => {
 
     // Always load full admin with permissions
     const admin = await Admin.findById(decoded.id).select(
-      "name email phone role isActive permissions lastLogin"
+      "name email phone systemrole isActive permissions lastLogin"
     );
 
     if (!admin) {
@@ -54,6 +54,7 @@ const getActionKey = (perm) => {
     manageReport: "reportActions",
     manageQuotation: "quotationActions",
     managePurchaseOrder: "purchaseOrderActions",
+    manageInquiry:"inquiryActions",
     manageHome: null, // home does not use actions
   };
 
@@ -64,7 +65,7 @@ export const authorize = (perm, action = "read") => {
   return (req, res, next) => {
     const admin = req.admin;
 
-    if (admin.role === "SuperAdmin") return next();
+    if (admin.systemrole === "SuperAdmin") return next();
 
     if (!admin.permissions) {
       return res.status(403).json({

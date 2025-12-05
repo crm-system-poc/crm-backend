@@ -86,7 +86,7 @@ const leadSchema = new mongoose.Schema({
   },
   source: {
     type: String,
-    enum: ['website', 'referral', 'social_media', 'cold_call', 'email', 'oem','other'],
+    enum: ['website', 'referral', 'social_media', 'cold_call', 'email', 'oem', 'inquiry', 'other'],
     default: 'other'
   },
   notes: {
@@ -115,7 +115,22 @@ const leadSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
     required: true
+  },
+  assignedUsers: [
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      required: true
+    },
+    permissions: {
+      read: { type: Boolean, default: true },
+      update: { type: Boolean, default: false },
+      delete: { type: Boolean, default: false }
+    }
   }
+]
+
 }, {
   timestamps: true,
   toJSON: {
@@ -135,7 +150,17 @@ leadSchema.index({ priority: 1 });
 leadSchema.index({ createdBy: 1 });
 leadSchema.index({ followUpDate: 1 });
 leadSchema.index({ createdAt: -1 });
-leadSchema.index({ customerName: 1}); 
+leadSchema.index({ customerName: 1});
+
+function autoPopulateAssignedUser(next) {
+  this.populate("assignedUsers.user", "name email");
+  next();
+}
+
+leadSchema.pre("find", autoPopulateAssignedUser);
+leadSchema.pre("findOne", autoPopulateAssignedUser);
+leadSchema.pre("findById", autoPopulateAssignedUser);
+
 
 leadSchema.statics.isDuplicateLead = async function(customerName, excludeLeadId = null) {
   const lead = await this.findOne({ 

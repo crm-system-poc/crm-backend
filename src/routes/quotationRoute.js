@@ -11,6 +11,7 @@ import {
 } from '../controllers/quotationController.js';
 import { authMiddleware, authorize } from '../middlewares/authMiddleware.js';
 import { uploadPDF } from '../middlewares/uploadMiddleware.js';
+import {reassignQuotation } from '../controllers/reassign/reassignQuotation.js'
 
 const router = express.Router();
 
@@ -27,5 +28,8 @@ router.get('/',authorize("manageQuotation", "read"), getAllQuotations);
 router.get('/lead/:leadId', authorize("manageQuotation", "read"), getQuotationsByLead);
 router.get('/:id', authorize("manageQuotation", "read"), getQuotationById);
 router.put('/:id/status', authorize("manageQuotation", "update"), updateQuotationStatus);
+
+router.put("/:id/reassign", authorize("manageQuotation", "update"), reassignQuotation);
+
 
 export default router;

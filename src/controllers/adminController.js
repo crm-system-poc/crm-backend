@@ -59,7 +59,7 @@ const setupAdmin = async (req, res) => {
       email,
       phone,
       password,
-      role: adminCount === 0 ? "SuperAdmin" : "User",
+      systemrole: adminCount === 0 ? "SuperAdmin" : "User",
       permissions: adminCount === 0 ? defaultPermissions : {},
     });
 
@@ -104,7 +104,7 @@ const loginAdmin = async (req, res) => {
 
     // Ensure SuperAdmin always has full permissions
     if (
-      admin.role === "SuperAdmin" &&
+      admin.systemrole === "SuperAdmin" &&
       (!admin.permissions || Object.keys(admin.permissions).length === 0)
     ) {
       admin.permissions = defaultPermissions;
@@ -120,7 +120,7 @@ const loginAdmin = async (req, res) => {
           name: admin.name,
           email: admin.email,
           phone: admin.phone,
-          role: admin.role,
+          systemrole: admin.systemrole,
           permissions: admin.permissions,
           lastLogin: admin.lastLogin,
         },

@@ -3,6 +3,52 @@ import Lead from "../models/Lead.js";
 import Quotation from "../models/Quotation.js";
 import { uploadToS3, deleteFileFromS3 } from "../utils/s3Utils.js";
 
+/**
+ * Safely compare ObjectId / strings / docs having _id
+ */
+const isSameId = (a, b) => {
+  if (!a || !b) return false;
+  const aStr =
+    typeof a === "string"
+      ? a
+      : a._id
+      ? a._id.toString()
+      : a.toString();
+  const bStr =
+    typeof b === "string"
+      ? b
+      : b._id
+      ? b._id.toString()
+      : b.toString();
+  return aStr === bStr;
+};
+
+/**
+ * Record Based Access for PurchaseOrder
+ * action: "read" | "update" | "delete"
+ */
+const canAccessPurchaseOrder = (po, admin, action) => {
+  if (!po || !admin) return false;
+
+  // 1) SuperAdmin => full access
+  if (admin.systemrole === "SuperAdmin") return true;
+
+  // 2) Creator => full access
+  if (isSameId(po.createdBy, admin.id)) return true;
+
+  // 3) Assigned users with per-record permissions
+  const assignedEntry = (po.assignedUsers || []).find((u) =>
+    isSameId(u.user, admin.id)
+  );
+
+  if (!assignedEntry || !assignedEntry.permissions) return false;
+
+  return assignedEntry.permissions[action] === true;
+};
+
+/**
+ * CREATE PURCHASE ORDER (create)
+ */
 const createPurchaseOrder = async (req, res) => {
   try {
     const {
@@ -13,6 +59,7 @@ const createPurchaseOrder = async (req, res) => {
       deliveryTerms,
       notes,
       poDate,
+      assignedUsers, // optional: assign users at creation
     } = req.body;
 
     console.log("📝 Creating purchase order with data:", {
@@ -116,7 +163,6 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-
     let validatedPODate = poDate ? new Date(poDate) : new Date();
     if (validatedPODate > new Date()) {
       return res.status(400).json({
@@ -124,7 +170,6 @@ const createPurchaseOrder = async (req, res) => {
         error: "PO Date cannot be in the future",
       });
     }
-
 
     if (quotationId) {
       const quotation = await Quotation.findById(quotationId);
@@ -216,7 +261,6 @@ const createPurchaseOrder = async (req, res) => {
             "⚠️ Failed to upload additional attachment:",
             uploadError.message
           );
-        
         }
       }
     }
@@ -259,6 +303,10 @@ const createPurchaseOrder = async (req, res) => {
       ),
     };
 
+    if (Array.isArray(assignedUsers)) {
+      poData.assignedUsers = assignedUsers;
+    }
+
     console.log("🧮 Pre-calculated values:", {
       totalAmount: poData.totalAmount,
       itemsCount: poData.items.length,
@@ -275,6 +323,7 @@ const createPurchaseOrder = async (req, res) => {
     await purchaseOrder.populate("leadId", "customerName contactPerson email");
     await purchaseOrder.populate("quotationId", "quoteId totalQuoteValue");
     await purchaseOrder.populate("createdBy", "name email");
+    await purchaseOrder.populate("assignedUsers.user", "name email");
 
     console.log(
       "✅ Purchase order created successfully:",
@@ -312,6 +361,9 @@ const createPurchaseOrder = async (req, res) => {
   }
 };
 
+/**
+ * ADD ATTACHMENT (update)
+ */
 const addAttachment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -329,6 +381,13 @@ const addAttachment = async (req, res) => {
       return res.status(404).json({
         success: false,
         error: "Purchase order not found",
+      });
+    }
+
+    if (!canAccessPurchaseOrder(purchaseOrder, req.admin, "update")) {
+      return res.status(403).json({
+        success: false,
+        error: "You do not have permission to update this purchase order",
       });
     }
 
@@ -366,6 +425,9 @@ const addAttachment = async (req, res) => {
   }
 };
 
+/**
+ * GET ALL PURCHASE ORDERS (read)
+ */
 const getAllPurchaseOrders = async (req, res) => {
   try {
     const {
@@ -379,6 +441,15 @@ const getAllPurchaseOrders = async (req, res) => {
     } = req.query;
 
     const filter = {};
+
+    // Record-based access for list
+    const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
+    if (!isSuperAdmin) {
+      filter.$or = [
+        { createdBy: req.admin.id },
+        { "assignedUsers.user": req.admin.id },
+      ];
+    }
 
     if (status) filter.status = status;
     if (leadId) filter.leadId = leadId;
@@ -401,6 +472,7 @@ const getAllPurchaseOrders = async (req, res) => {
       .populate("leadId", "customerName contactPerson email")
       .populate("quotationId", "quoteId totalQuoteValue")
       .populate("createdBy", "name email")
+      .populate("assignedUsers.user", "name email")
       .sort({ poDate: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -426,17 +498,28 @@ const getAllPurchaseOrders = async (req, res) => {
   }
 };
 
+/**
+ * GET PURCHASE ORDER BY ID (read)
+ */
 const getPurchaseOrderById = async (req, res) => {
   try {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
       .populate("leadId")
       .populate("quotationId")
-      .populate("createdBy", "name email");
+      .populate("createdBy", "name email")
+      .populate("assignedUsers.user", "name email");
 
     if (!purchaseOrder) {
       return res.status(404).json({
         success: false,
         error: "Purchase order not found",
+      });
+    }
+
+    if (!canAccessPurchaseOrder(purchaseOrder, req.admin, "read")) {
+      return res.status(403).json({
+        success: false,
+        error: "You do not have access to this purchase order",
       });
     }
 
@@ -458,6 +541,9 @@ const getPurchaseOrderById = async (req, res) => {
   }
 };
 
+/**
+ * UPDATE PURCHASE ORDER STATUS (update)
+ */
 const updatePurchaseOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -468,6 +554,13 @@ const updatePurchaseOrderStatus = async (req, res) => {
       return res.status(404).json({
         success: false,
         error: "Purchase order not found",
+      });
+    }
+
+    if (!canAccessPurchaseOrder(purchaseOrder, req.admin, "update")) {
+      return res.status(403).json({
+        success: false,
+        error: "You do not have permission to update this purchase order",
       });
     }
 
@@ -487,6 +580,7 @@ const updatePurchaseOrderStatus = async (req, res) => {
     await purchaseOrder.populate("leadId", "customerName contactPerson email");
     await purchaseOrder.populate("quotationId", "quoteId totalQuoteValue");
     await purchaseOrder.populate("createdBy", "name email");
+    await purchaseOrder.populate("assignedUsers.user", "name email");
 
     res.json({
       success: true,
@@ -508,6 +602,9 @@ const updatePurchaseOrderStatus = async (req, res) => {
   }
 };
 
+/**
+ * GET PURCHASE ORDERS BY LEAD (read)
+ */
 const getPurchaseOrdersByLead = async (req, res) => {
   try {
     const { leadId } = req.params;
@@ -517,14 +614,26 @@ const getPurchaseOrdersByLead = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    const purchaseOrders = await PurchaseOrder.find({ leadId })
+    const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
+
+    const conditions = { leadId };
+
+    if (!isSuperAdmin) {
+      conditions.$or = [
+        { createdBy: req.admin.id },
+        { "assignedUsers.user": req.admin.id },
+      ];
+    }
+
+    const purchaseOrders = await PurchaseOrder.find(conditions)
       .populate("quotationId", "quoteId totalQuoteValue")
       .populate("createdBy", "name email")
+      .populate("assignedUsers.user", "name email")
       .sort({ poDate: -1 })
       .skip(skip)
       .limit(limitNum);
 
-    const total = await PurchaseOrder.countDocuments({ leadId });
+    const total = await PurchaseOrder.countDocuments(conditions);
 
     res.json({
       success: true,
@@ -544,6 +653,9 @@ const getPurchaseOrdersByLead = async (req, res) => {
   }
 };
 
+/**
+ * DELETE PURCHASE ORDER (delete)
+ */
 const deletePurchaseOrder = async (req, res) => {
   try {
     const { id } = req.params;
@@ -559,7 +671,7 @@ const deletePurchaseOrder = async (req, res) => {
       });
     }
 
-    if (purchaseOrder.createdBy.toString() !== req.admin.id) {
+    if (!canAccessPurchaseOrder(purchaseOrder, req.admin, "delete")) {
       return res.status(403).json({
         success: false,
         error: "You do not have permission to delete this purchase order",
@@ -570,7 +682,10 @@ const deletePurchaseOrder = async (req, res) => {
       try {
         await deleteFileFromS3(purchaseOrder.poPdf.s3Key);
       } catch (s3Error) {
-        console.error("⚠️ Failed to delete PO PDF from S3:", s3Error.message);
+        console.error(
+          "⚠️ Failed to delete PO PDF from S3:",
+          s3Error.message
+        );
       }
     }
 
@@ -620,19 +735,27 @@ const deletePurchaseOrder = async (req, res) => {
   }
 };
 
+/**
+ * GET EXPIRING LICENSES (read – record-based)
+ */
 const getExpiringLicenses = async (req, res) => {
   try {
     const { days = 30 } = req.query;
 
-    const purchaseOrders = await PurchaseOrder.findWithExpiringLicenses(
+    const allPOs = await PurchaseOrder.findWithExpiringLicenses(
       parseInt(days)
+    );
+
+    // Filter by record-based access
+    const visiblePOs = allPOs.filter((po) =>
+      canAccessPurchaseOrder(po, req.admin, "read")
     );
 
     res.json({
       success: true,
-      data: purchaseOrders,
+      data: visiblePOs,
       summary: {
-        total: purchaseOrders.length,
+        total: visiblePOs.length,
         days: parseInt(days),
       },
     });
@@ -645,78 +768,116 @@ const getExpiringLicenses = async (req, res) => {
   }
 };
 
-
+/**
+ * GET PURCHASE ORDER STATS (read – record-based)
+ */
 const getPurchaseOrdersStats = async (req, res) => {
   try {
     console.log("📊 Fetching Purchase Order stats...");
 
-    const totalPOs = await PurchaseOrder.countDocuments();
+    const matchStage = {};
 
-    const totalDraft = await PurchaseOrder.countDocuments({ status: "draft" });
-    const totalSent = await PurchaseOrder.countDocuments({ status: "sent" });
-    const totalAcknowledged = await PurchaseOrder.countDocuments({ status: "acknowledged" });
-    const totalInProgress = await PurchaseOrder.countDocuments({ status: "in_progress" });
-    const totalCompleted = await PurchaseOrder.countDocuments({ status: "completed" });
-    const totalCancelled = await PurchaseOrder.countDocuments({ status: "cancelled" });
+    // Limit stats to accessible records for non SuperAdmin
+    if (req.admin.systemrole !== "SuperAdmin") {
+      matchStage.$or = [
+        { createdBy: req.admin._id },
+        { "assignedUsers.user": req.admin._id },
+      ];
+    }
 
-    const totalWithPDF = await PurchaseOrder.countDocuments({ poPdf: { $exists: true } });
-    const totalWithoutPDF = await PurchaseOrder.countDocuments({ poPdf: { $exists: false } });
+    const pipelineBase = Object.keys(matchStage).length
+      ? [{ $match: matchStage }]
+      : [];
 
-    const totalData = await PurchaseOrder.aggregate([
-      { $group: { _id: null, totalAmountSum: { $sum: "$totalAmount" } } }
+    const [totalPOsAgg] = await PurchaseOrder.aggregate([
+      ...pipelineBase,
+      { $count: "count" },
     ]);
 
-    const totalAmountSum = totalData.length > 0 ? totalData[0].totalAmountSum : 0;
+    const totalPOs = totalPOsAgg ? totalPOsAgg.count : 0;
+
+    const statusCounts = await PurchaseOrder.aggregate([
+      ...pipelineBase,
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const status = {
+      totalDraft:
+        statusCounts.find((s) => s._id === "draft")?.count || 0,
+      totalSent:
+        statusCounts.find((s) => s._id === "sent")?.count || 0,
+      totalAcknowledged:
+        statusCounts.find((s) => s._id === "acknowledged")?.count || 0,
+      totalInProgress:
+        statusCounts.find((s) => s._id === "in_progress")?.count || 0,
+      totalCompleted:
+        statusCounts.find((s) => s._id === "completed")?.count || 0,
+      totalCancelled:
+        statusCounts.find((s) => s._id === "cancelled")?.count || 0,
+    };
+
+    const totalData = await PurchaseOrder.aggregate([
+      ...pipelineBase,
+      { $group: { _id: null, totalAmountSum: { $sum: "$totalAmount" } } },
+    ]);
+
+    const totalAmountSum =
+      totalData.length > 0 ? totalData[0].totalAmountSum : 0;
 
     const now = new Date();
     const expiredLicenses = await PurchaseOrder.countDocuments({
-      "items.licenseExpiryDate": { $lt: now }
+      ...matchStage,
+      "items.licenseExpiryDate": { $lt: now },
     });
 
     const next30Days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     const expiringSoonLicenses = await PurchaseOrder.countDocuments({
+      ...matchStage,
       "items.licenseExpiryDate": {
         $gte: now,
-        $lte: next30Days
-      }
+        $lte: next30Days,
+      },
     });
 
     res.json({
       success: true,
       data: {
         totalPOs,
-        status: {
-          totalDraft,
-          totalSent,
-          totalAcknowledged,
-          totalInProgress,
-          totalCompleted,
-          totalCancelled,
-        },
+        status,
         attachmentSummary: {
-          totalWithPDF,
-          totalWithoutPDF
+          // Optionally could be made record-based with aggregate and matchStage
+          totalWithPDF: await PurchaseOrder.countDocuments({
+            ...matchStage,
+            poPdf: { $exists: true },
+          }),
+          totalWithoutPDF: await PurchaseOrder.countDocuments({
+            ...matchStage,
+            poPdf: { $exists: false },
+          }),
         },
         licenses: {
           expired: expiredLicenses,
           expiringSoon: expiringSoonLicenses,
         },
         financials: {
-          totalAmountSum
-        }
-      }
+          totalAmountSum,
+        },
+      },
     });
-
   } catch (error) {
     console.error("❌ Error fetching PO stats:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
-
 
 export {
   createPurchaseOrder,
@@ -727,6 +888,5 @@ export {
   getPurchaseOrdersByLead,
   deletePurchaseOrder,
   getExpiringLicenses,
-  getPurchaseOrdersStats
-  
+  getPurchaseOrdersStats,
 };

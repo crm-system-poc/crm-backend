@@ -14,6 +14,8 @@ import purchaseOrderRoutes from './routes/purchaseOrderRoute.js';
 import reportRoutes from './routes/reportRoute.js';
 import fileRoutes from './routes/fileRoute.js';
 import productRoutes from './routes/productRoute.js';
+import inquiries from './routes/inquiryRoutes.js'
+
 const app = express();
 
 app.use(securityHeaders);
@@ -44,6 +46,7 @@ app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/inquiries', inquiries);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ 

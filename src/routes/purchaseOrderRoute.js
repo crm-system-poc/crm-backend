@@ -12,6 +12,7 @@ import {
 } from '../controllers/purchaseOrderController.js';
 import { authMiddleware , authorize} from '../middlewares/authMiddleware.js';
 import { uploadFields } from '../middlewares/uploadMiddleware.js';
+import {reassignPurchaseOrder} from '../controllers/reassign/reassignPurchaseOrder.js';
 
 const router = express.Router();
 
@@ -40,5 +41,11 @@ router.get('/:id', authorize("managePurchaseOrder", "read"), getPurchaseOrderByI
 router.put('/:id/status', authorize("managePurchaseOrder", "update"), updatePurchaseOrderStatus);
 
 router.delete('/:id', authorize("managePurchaseOrder", "delete"), deletePurchaseOrder);
+
+router.put("/:id/reassign",
+  authorize("managePurchaseOrder", "update"),
+  reassignPurchaseOrder
+);
+
 
 export default router;

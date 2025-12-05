@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 const getMonthlyLicenseExpiry = async (req, res) => {
   try {
     const { year = new Date().getFullYear(), months = 12 } = req.query;
-    
+    const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
     const startDate = new Date(year, 0, 1); 
     const endDate = new Date(year, 11, 31); 
 
@@ -15,11 +15,12 @@ const getMonthlyLicenseExpiry = async (req, res) => {
 
       {
         $match: {
-          'items.licenseExpiryDate': {
+          "items.licenseExpiryDate": {
             $gte: startDate,
             $lte: endDate
           },
-          'items.licenseType': { $ne: 'perpetual' } 
+          "items.licenseType": { $ne: "perpetual" },
+          ...(isSuperAdmin ? {} : { createdBy: new mongoose.Types.ObjectId(userId) })
         }
       },
       
@@ -112,6 +113,7 @@ const getSalesFunnelReport = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
     
+    const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
     let groupByFormat;
     let dateField;
     
@@ -143,19 +145,26 @@ const getSalesFunnelReport = async (req, res) => {
 
     const leadsPipeline = [
       ...(Object.keys(dateFilter).length ? [{ $match: { createdAt: dateFilter } }] : []),
-      { $group: { _id: groupByFormat, count: { $sum: 1 } } }
+      { $group: { _id: groupByFormat, count: { $sum: 1 } } },
+      ...(isSuperAdmin ? [] : [{ $match: { createdBy: new mongoose.Types.ObjectId(userId) } }]),
+
     ];
 
     const quotationsPipeline = [
       ...(Object.keys(dateFilter).length ? [{ $match: { createdAt: dateFilter } }] : []),
       { $match: { status: { $in: ['sent', 'accepted', 'viewed'] } } },
-      { $group: { _id: groupByFormat, count: { $sum: 1 } } }
+      { $group: { _id: groupByFormat, count: { $sum: 1 } } },
+      ...(isSuperAdmin ? [] : [{ $match: { createdBy: new mongoose.Types.ObjectId(userId) } }]),
+
+
     ];
 
     const ordersPipeline = [
       ...(Object.keys(dateFilter).length ? [{ $match: { createdAt: dateFilter } }] : []),
       { $match: { status: { $in: ['acknowledged', 'in_progress', 'completed'] } } },
-      { $group: { _id: groupByFormat, count: { $sum: 1 } } }
+      { $group: { _id: groupByFormat, count: { $sum: 1 } } },
+      ...(isSuperAdmin ? [] : [{ $match: { createdBy: new mongoose.Types.ObjectId(userId) } }]),
+
     ];
 
     const [leadsData, quotationsData, ordersData] = await Promise.all([
@@ -253,6 +262,9 @@ const getDashboardReports = async (req, res) => {
 
     const lastMonthStart = new Date(currentYear, currentMonth - 2, 1);
     const lastMonthEnd = new Date(currentYear, currentMonth - 1, 0, 23, 59, 59);
+
+    const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
+
     const [
       currentMonthLeads,
       currentMonthQuotations,
@@ -266,14 +278,17 @@ const getDashboardReports = async (req, res) => {
       expiringThisMonth
     ] = await Promise.all([
 
-      Lead.countDocuments({ createdAt: { $gte: monthStart, $lte: monthEnd } }),
-      Quotation.countDocuments({ 
+      
+      Lead.countDocuments({
         createdAt: { $gte: monthStart, $lte: monthEnd },
-        status: { $in: ['sent', 'accepted', 'viewed'] }
+        ...(isSuperAdmin ? {} : { createdBy: userId })
       }),
+      
       PurchaseOrder.countDocuments({ 
         createdAt: { $gte: monthStart, $lte: monthEnd },
-        status: { $in: ['acknowledged', 'in_progress', 'completed'] }
+        status: { $in: ['acknowledged', 'in_progress', 'completed'] },
+        ...(isSuperAdmin ? {} : { createdBy: userId })
+
       }),
       
       Lead.countDocuments({ createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd } }),
@@ -283,7 +298,9 @@ const getDashboardReports = async (req, res) => {
       }),
       PurchaseOrder.countDocuments({ 
         createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
-        status: { $in: ['acknowledged', 'in_progress', 'completed'] }
+        status: { $in: ['acknowledged', 'in_progress', 'completed'] },
+        ...(isSuperAdmin ? {} : { createdBy: userId })
+
       }),
       
       Lead.countDocuments(),
@@ -291,11 +308,12 @@ const getDashboardReports = async (req, res) => {
       PurchaseOrder.countDocuments({ status: { $in: ['acknowledged', 'in_progress', 'completed'] } }),
       
       PurchaseOrder.countDocuments({
-        'items.licenseExpiryDate': {
-          $gte: monthStart,
-          $lte: monthEnd
-        },
-        'items.licenseType': { $ne: 'perpetual' }
+        "items.licenseExpiryDate": {
+    $gte: monthStart,
+    $lte: monthEnd
+  },
+  "items.licenseType": { $ne: "perpetual" },
+  ...(isSuperAdmin ? {} : { createdBy: new mongoose.Types.ObjectId(userId) })
       })
     ]);
 
@@ -354,7 +372,7 @@ const getAllExpireLicense = async (req, res) => {
     // Query filters
     const { filter = "monthly" } = req.query; 
     // monthly | quarterly | yearly
-
+    const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
     // Date Ranges
     const past3MonthsStart = new Date(today.getFullYear(), today.getMonth() - 3, 1);
     const next3MonthsEnd = new Date(today.getFullYear(), today.getMonth() + 4, 0, 23, 59, 59);
@@ -369,7 +387,8 @@ const getAllExpireLicense = async (req, res) => {
           "items.licenseExpiryDate": {
             $gte: past3MonthsStart,
             $lte: next3MonthsEnd
-          }
+          },
+          ...(isSuperAdmin ? {} : { createdBy: new mongoose.Types.ObjectId(userId) })
         }
       },
 
