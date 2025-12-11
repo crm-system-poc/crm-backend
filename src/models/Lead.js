@@ -84,6 +84,7 @@ const leadSchema = new mongoose.Schema({
     enum: ['new', 'contacted', 'qualified', 'proposal_sent', 'negotiation', 'oem_approval', 'won', 'lost'],
     default: 'new'
   },
+  
   source: {
     type: String,
     enum: ['website', 'referral', 'social_media', 'cold_call', 'email', 'oem', 'inquiry', 'other'],
@@ -110,6 +111,11 @@ const leadSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Customer', 
     default: null
+  },
+  sfdcDate: {
+    type: Date,
+    default: Date.now,
+    index: true
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -160,6 +166,14 @@ function autoPopulateAssignedUser(next) {
 leadSchema.pre("find", autoPopulateAssignedUser);
 leadSchema.pre("findOne", autoPopulateAssignedUser);
 leadSchema.pre("findById", autoPopulateAssignedUser);
+
+
+leadSchema.virtual("ageInDays").get(function () {
+  if (!this.sfdcDate) return 0;
+  const diff = Date.now() - new Date(this.sfdcDate).getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+});
+
 
 
 leadSchema.statics.isDuplicateLead = async function(customerName, excludeLeadId = null) {

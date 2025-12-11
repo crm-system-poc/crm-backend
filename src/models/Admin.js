@@ -81,7 +81,7 @@ const adminSchema = new mongoose.Schema(
     systemrole: {
       type: String,
       enum: ["SuperAdmin", "User"],
-      default: "SuperAdmin",
+      default: "User",
     },
     // role for CRM Project
     role: {

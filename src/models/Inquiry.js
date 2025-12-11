@@ -16,6 +16,12 @@ const inquirySchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    companyName: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+
     city: {
       type: String,
       trim: true,

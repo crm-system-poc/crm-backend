@@ -9,6 +9,7 @@ import {
 } from "../controllers/inquiryController.js";
 
 import { authMiddleware, authorize } from "../middlewares/authMiddleware.js";
+import reassignInquiry from "../controllers/reassign/reassignInquiry.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -18,6 +19,13 @@ router.get("/", authorize("manageInquiry", "read"), getAllInquiries);
 router.get("/:id", authorize("manageInquiry", "read"), getInquiryById);
 router.put("/:id", authorize("manageInquiry", "update"), updateInquiry);
 router.delete("/:id", authorize("manageInquiry", "delete"), deleteInquiry);
+
+// 🔁 Reassign users
+router.put(
+  "/:id/reassign",
+  authorize("manageInquiry", "update"),
+  reassignInquiry
+);
 
 // Convert → Lead
 router.post("/:id/convert", authorize("manageInquiry", "update"), convertInquiryToLead);

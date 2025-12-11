@@ -102,13 +102,12 @@ const loginAdmin = async (req, res) => {
     const token = generateToken(admin._id);
     res.cookie("adminToken", token, getCookieOptions());
 
-    // Ensure SuperAdmin always has full permissions
     if (
       admin.systemrole === "SuperAdmin" &&
       (!admin.permissions || Object.keys(admin.permissions).length === 0)
     ) {
       admin.permissions = defaultPermissions;
-      await admin.save(); // 🔥 save updated permissions in DB
+      await admin.save();
     }
 
     res.json({

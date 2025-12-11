@@ -45,14 +45,17 @@ export const getAllInquiries = async (req, res) => {
   try {
     const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
 
-    const filter = isSuperAdmin
-      ? {}
-      : {
-          $or: [
-            { createdBy: req.admin.id },
-            { "assignedUsers.user": req.admin.id },
-          ],
-        };
+    const filter = {
+      isDeleted: false,
+      ...(isSuperAdmin
+        ? {}
+        : {
+            $or: [
+              { createdBy: req.admin.id },
+              { "assignedUsers.user": req.admin.id },
+            ],
+          }),
+    };
 
     const inquiries = await Inquiry.find(filter)
       .populate("createdBy", "name email")
@@ -63,6 +66,7 @@ export const getAllInquiries = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 export const getInquiryById = async (req, res) => {
   try {
@@ -88,15 +92,30 @@ export const updateInquiry = async (req, res) => {
   try {
     const inquiry = await Inquiry.findById(req.params.id);
 
-    if (!inquiry) {
-      return res.status(404).json({ success: false, error: "Inquiry not found" });
+    if (!inquiry || inquiry.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        error: "Inquiry not found",
+      });
     }
 
     if (!canAccessInquiry(inquiry, req.admin, "update")) {
-      return res.status(403).json({ success: false, error: "No permission to update" });
+      return res.status(403).json({
+        success: false,
+        error: "No permission to update",
+      });
     }
 
-    Object.assign(inquiry, req.body);
+    // ❗ BLOCK dangerous fields
+    const {
+      createdBy,
+      isDeleted,
+      isConvertedToLead,
+      assignedUsers,
+      ...safeUpdates
+    } = req.body;
+
+    Object.assign(inquiry, safeUpdates);
 
     await inquiry.save();
 
@@ -106,23 +125,34 @@ export const updateInquiry = async (req, res) => {
       data: inquiry,
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 };
+
 
 export const deleteInquiry = async (req, res) => {
   try {
     const inquiry = await Inquiry.findById(req.params.id);
 
-    if (!inquiry) {
-      return res.status(404).json({ success: false, error: "Inquiry not found" });
+    if (!inquiry || inquiry.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        error: "Inquiry not found",
+      });
     }
 
     if (!canAccessInquiry(inquiry, req.admin, "delete")) {
-      return res.status(403).json({ success: false, error: "No permission to delete" });
+      return res.status(403).json({
+        success: false,
+        error: "No permission to delete",
+      });
     }
 
-    await inquiry.deleteOne();
+    inquiry.isDeleted = true;
+    await inquiry.save();
 
     res.json({
       success: true,
@@ -134,45 +164,57 @@ export const deleteInquiry = async (req, res) => {
 };
 
 
+
 export const convertInquiryToLead = async (req, res) => {
   try {
     const inquiry = await Inquiry.findById(req.params.id);
 
-    if (!inquiry) {
+    if (!inquiry || inquiry.isDeleted) {
       return res.status(404).json({
         success: false,
-        error: "Inquiry not found"
+        error: "Inquiry not found",
+      });
+    }
+
+    if (inquiry.isConvertedToLead) {
+      return res.status(400).json({
+        success: false,
+        error: "Inquiry already converted to Lead",
       });
     }
 
     if (!canAccessInquiry(inquiry, req.admin, "update")) {
       return res.status(403).json({
         success: false,
-        error: "Not allowed to convert this inquiry"
+        error: "Not allowed to convert this inquiry",
       });
     }
 
+    const sfdcDate = new Date(); // ✅ FIXED
+
     const leadData = {
-      customerName: inquiry.customerName || "Unknown Customer",
-      contactPerson: inquiry.customerName || "Unknown",
+      customerName: inquiry.customerName,
+      companyName: inquiry.companyName,
+      contactPerson: inquiry.customerName,
       email: inquiry.email || "no-email@example.com",
-      phoneNumber: inquiry.phoneNumber || "0000000000",
+      phoneNumber: inquiry.phoneNumber,
       altPhoneNumber: "",
       altEmail: "",
-      location: inquiry.city || "Not Provided",
+      location: inquiry.city || "Unknown",
       source: "inquiry",
       notes: inquiry.message || "",
       status: "new",
       priority: "medium",
       estimatedValue: 0,
+      sfdcDate,
       createdBy: req.admin.id,
       address: {
-        street: inquiry.city || "Unknown",
-        city: inquiry.city || "Unknown",
-        state: "Unknown",
+        street: inquiry.city || "Not Provided",
+        city: inquiry.city || "Not Provided",
+        state: "Not Provided",
         zipCode: "000000",
-        country: "India"
-      }
+        country: "India",
+      },
     };
 
     const newLead = await Lead.create(leadData);
@@ -184,13 +226,12 @@ export const convertInquiryToLead = async (req, res) => {
     res.json({
       success: true,
       message: "Inquiry converted to Lead successfully",
-      data: newLead
+      data: newLead,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
