@@ -209,6 +209,12 @@ const purchaseOrderSchema = new mongoose.Schema({
   completedDate: {
     type: Date
   },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Account",
+    required: true,
+    index: true,
+  },
   superAdminId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Admin",

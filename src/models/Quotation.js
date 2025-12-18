@@ -152,6 +152,12 @@ const quotationSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    accountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Account",
+      // required: true,
+      index: true,
+    },
     superAdminId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",

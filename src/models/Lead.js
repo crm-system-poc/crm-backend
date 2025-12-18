@@ -120,7 +120,7 @@ const leadSchema = new mongoose.Schema({
   accountId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Account",
-    required: true,
+    // required: true,
     index: true,
   },
   

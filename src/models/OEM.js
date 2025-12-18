@@ -20,6 +20,11 @@ const oemSchema = new mongoose.Schema(
       trim: true,
     },
 
+    contactPerson: {
+      type: String,
+      trim: true,
+    },
+
     superAdminId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",

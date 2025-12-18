@@ -6,7 +6,7 @@ import { getSuperAdminId } from "../utils/superAdmin.js";
  */
 export const createOEM = async (req, res) => {
   try {
-    const { name, email, contactNumber } = req.body;
+    const { name, email, contactNumber, contactPerson } = req.body;
 
     if (!name) {
       return res.status(400).json({ success: false, error: "OEM name is required" });
@@ -23,6 +23,7 @@ export const createOEM = async (req, res) => {
       name,
       email,
       contactNumber,
+      contactPerson,
       superAdminId,
       createdBy: req.admin.id,
     });
@@ -65,7 +66,8 @@ export const getAllOEMs = async (req, res) => {
       filter.$or = [
         { name: { $regex: search, $options: "i" } },
         { email: { $regex: search, $options: "i" } },
-        { contact: { $regex: search, $options: "i" } },
+        { contactNumber: { $regex: search, $options: "i" } },
+        { contactPerson: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -124,7 +126,7 @@ export const getOEMById = async (req, res) => {
  */
 export const updateOEM = async (req, res) => {
   try {
-    const { name, email, contactNumber, isActive } = req.body;
+    const { name, email, contactNumber, contactPerson, isActive } = req.body;
     const superAdminId = getSuperAdminId(req);
 
     const oem = await OEM.findOne({
@@ -136,9 +138,10 @@ export const updateOEM = async (req, res) => {
       return res.status(404).json({ success: false, error: "OEM not found" });
     }
 
-    if (name) oem.name = name;
+    if (name !== undefined) oem.name = name;
     if (email !== undefined) oem.email = email;
     if (contactNumber !== undefined) oem.contactNumber = contactNumber;
+    if (contactPerson !== undefined) oem.contactPerson = contactPerson;
     if (isActive !== undefined) oem.isActive = isActive;
 
     await oem.save();
@@ -185,7 +188,7 @@ export const getOEMDropdown = async (req, res) => {
   try {
     const oems = await OEM.find(
       { isActive: true },
-      { name: 1 } // only required fields
+      { name: 1, contactPerson: 1 } // include contactPerson if needed
     ).sort({ name: 1 });
 
     res.json({
@@ -193,6 +196,7 @@ export const getOEMDropdown = async (req, res) => {
       data: oems.map((o) => ({
         id: o._id,
         name: o.name,
+        contactPerson: o.contactPerson,
       })),
     });
   } catch (error) {
@@ -204,5 +208,3 @@ export const getOEMDropdown = async (req, res) => {
 };
 
 
-  
-  

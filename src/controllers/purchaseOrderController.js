@@ -4,6 +4,7 @@ import Quotation from "../models/Quotation.js";
 import { uploadToS3, deleteFileFromS3 } from "../utils/s3Utils.js";
 import { getSuperAdminId } from "../utils/superAdmin.js";
 import mongoose from "mongoose";
+import Account from "../models/Account.js";
 
 /**
  * Safely compare ObjectId / strings / docs having _id
@@ -75,6 +76,8 @@ const generateNextPONumber = async () => {
 /**
  * CREATE PURCHASE ORDER (create)
  */
+ // ✅ NEW
+
 const createPurchaseOrder = async (req, res) => {
   try {
     const {
@@ -85,28 +88,8 @@ const createPurchaseOrder = async (req, res) => {
       deliveryTerms,
       notes,
       poDate,
-      
-      assignedUsers, // optional: assign users at creation
+      assignedUsers,
     } = req.body;
-
-    console.log("📝 Creating purchase order with data:", {
-      leadId,
-      quotationId,
-      superAdminId: getSuperAdminId(req),
-      itemsCount: items
-        ? typeof items === "string"
-          ? JSON.parse(items).length
-          : items.length
-        : 0,
-      poDate,
-    });
-
-    if (!req.files || !req.files.poPdf || req.files.poPdf.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "PO PDF attachment is required",
-      });
-    }
 
     if (!leadId) {
       return res.status(400).json({
@@ -115,10 +98,21 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    const lead = await Lead.findById(leadId).populate(
-      "createdBy",
-      "name email"
-    );
+    if (!req.files?.poPdf?.length) {
+      return res.status(400).json({
+        success: false,
+        error: "PO PDF attachment is required",
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // 🔐 FETCH LEAD (TENANT SAFE)
+    // ------------------------------------------------------------------
+    const lead = await Lead.findOne({
+      _id: leadId,
+      superAdminId: getSuperAdminId(req),
+    }).populate("accountId");
+
     if (!lead) {
       return res.status(404).json({
         success: false,
@@ -126,68 +120,64 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    if (!items) {
-      return res.status(400).json({
-        success: false,
-        error: "Items are required",
-      });
+    // ------------------------------------------------------------------
+    // 🧠 RESOLVE ACCOUNT ID (Quotation → Lead → Auto-create)
+    // ------------------------------------------------------------------
+    let resolvedAccountId = null;
+
+    // 1️⃣ From Quotation
+    if (quotationId) {
+      const quotation = await Quotation.findOne({
+        _id: quotationId,
+        superAdminId: getSuperAdminId(req),
+      }).populate("accountId");
+
+      if (!quotation) {
+        return res.status(404).json({
+          success: false,
+          error: "Quotation not found",
+        });
+      }
+
+      resolvedAccountId = quotation.accountId;
     }
 
+    // 2️⃣ From Lead
+    if (!resolvedAccountId && lead.accountId) {
+      resolvedAccountId = lead.accountId;
+    }
+
+    // 3️⃣ Auto-create Account (FINAL FALLBACK)
+    if (!resolvedAccountId) {
+      const newAccount = await Account.create({
+        customerName: lead.customerName,
+        contactPerson: lead.contactPerson,
+        email: lead.email,
+        phoneNumber: lead.phoneNumber,
+        alternateEmail: lead.altEmail,
+        alternateNumber: lead.altPhoneNumber,
+        address: lead.address,
+        location: lead.location,
+        superAdminId: getSuperAdminId(req),
+        createdBy: req.admin.id,
+      });
+
+      resolvedAccountId = newAccount._id;
+
+      // backfill lead
+      lead.accountId = resolvedAccountId;
+      await lead.save();
+    }
+
+    // ------------------------------------------------------------------
+    // 🧾 ITEMS VALIDATION
+    // ------------------------------------------------------------------
     const parsedItems = typeof items === "string" ? JSON.parse(items) : items;
 
     if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "At least one item is required for purchase order",
-      });
-    }
-
-    const itemErrors = [];
-    parsedItems.forEach((item, index) => {
-      if (!item.productId) {
-        itemErrors.push(`Item ${index + 1}: Product ID is required`);
-      }
-      if (!item.description) {
-        itemErrors.push(`Item ${index + 1}: Description is required`);
-      }
-      if (!item.quantity || item.quantity < 1) {
-        itemErrors.push(`Item ${index + 1}: Valid quantity is required`);
-      }
-      if (!item.licenseType) {
-        itemErrors.push(`Item ${index + 1}: License type is required`);
-      }
-      if (
-        item.licenseType &&
-        item.licenseType !== "perpetual" &&
-        !item.licenseExpiryDate
-      ) {
-        itemErrors.push(
-          `Item ${
-            index + 1
-          }: License expiry date is required for ${item.licenseType.toUpperCase()} license`
-        );
-      }
-
-      if (
-        item.licenseType &&
-        item.licenseType !== "perpetual" &&
-        item.licenseExpiryDate
-      ) {
-        const expiryDate = new Date(item.licenseExpiryDate);
-        if (expiryDate <= new Date()) {
-          itemErrors.push(
-            `Item ${
-              index + 1
-            }: License expiry date must be in the future for ${item.licenseType.toUpperCase()} license`
-          );
-        }
-      }
-    });
-
-    if (itemErrors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Item validation failed: " + itemErrors.join(", "),
+        error: "At least one item is required",
       });
     }
 
@@ -199,107 +189,29 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    if (quotationId) {
-      const quotation = await Quotation.findById(quotationId);
-      if (!quotation) {
-        return res.status(404).json({
-          success: false,
-          error: "Quotation not found",
-        });
-      }
-    }
+    // ------------------------------------------------------------------
+    // 📁 UPLOAD PO PDF
+    // ------------------------------------------------------------------
+    const folder = `purchase-orders/${req.admin.id}`;
+    const s3UploadResult = await uploadToS3(req.files.poPdf[0], folder);
 
-    console.log("📁 PO PDF received:", req.files.poPdf[0].originalname);
+    const poPdfData = {
+      originalName: s3UploadResult.originalName,
+      s3Key: s3UploadResult.key,
+      s3Url: s3UploadResult.url,
+      fileSize: s3UploadResult.fileSize,
+      uploadedAt: new Date(),
+    };
 
-    let poPdfData;
-    try {
-      const folder = `purchase-orders/${req.admin.id}`;
-      const s3UploadResult = await uploadToS3(req.files.poPdf[0], folder);
-
-      poPdfData = {
-        originalName: s3UploadResult.originalName,
-        s3Key: s3UploadResult.key,
-        s3Url: s3UploadResult.url,
-        fileSize: s3UploadResult.fileSize,
-        uploadedAt: new Date(),
-      };
-
-      console.log("✅ PO PDF uploaded to S3:", s3UploadResult.key);
-    } catch (uploadError) {
-      console.error("❌ PO PDF upload failed:", uploadError);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to upload PO PDF: " + uploadError.message,
-      });
-    }
-
-    const additionalAttachments = [];
-
-    if (req.files.licenseFile && req.files.licenseFile.length > 0) {
-      console.log("📄 Processing license file attachment");
-      for (const file of req.files.licenseFile) {
-        try {
-          const folder = `purchase-orders/${req.admin.id}/attachments`;
-          const s3UploadResult = await uploadToS3(file, folder);
-
-          additionalAttachments.push({
-            type: "license_file",
-            originalName: s3UploadResult.originalName,
-            s3Key: s3UploadResult.key,
-            s3Url: s3UploadResult.url,
-            fileSize: s3UploadResult.fileSize,
-            uploadedAt: new Date(),
-            notes: "License file uploaded during PO creation",
-          });
-
-          console.log("✅ License file uploaded:", s3UploadResult.originalName);
-        } catch (uploadError) {
-          console.error(
-            "⚠️ Failed to upload license file:",
-            uploadError.message
-          );
-        }
-      }
-    }
-
-    if (req.files.attachments && req.files.attachments.length > 0) {
-      console.log(
-        "📎 Processing additional attachments:",
-        req.files.attachments.length
-      );
-
-      for (const file of req.files.attachments) {
-        try {
-          const folder = `purchase-orders/${req.admin.id}/attachments`;
-          const s3UploadResult = await uploadToS3(file, folder);
-
-          additionalAttachments.push({
-            type: "other",
-            originalName: s3UploadResult.originalName,
-            s3Key: s3UploadResult.key,
-            s3Url: s3UploadResult.url,
-            fileSize: s3UploadResult.fileSize,
-            uploadedAt: new Date(),
-            notes: "",
-          });
-
-          console.log(
-            "✅ Additional attachment uploaded:",
-            s3UploadResult.originalName
-          );
-        } catch (uploadError) {
-          console.error(
-            "⚠️ Failed to upload additional attachment:",
-            uploadError.message
-          );
-        }
-      }
-    }
-
+    // ------------------------------------------------------------------
+    // 🧮 BUILD PO DATA
+    // ------------------------------------------------------------------
     const poData = {
       leadId,
       quotationId,
+      accountId: resolvedAccountId, // ✅ KEY FIX
       poDate: validatedPODate,
+
       customerDetails: {
         customerName: lead.customerName,
         contactPerson: lead.contactPerson,
@@ -307,6 +219,7 @@ const createPurchaseOrder = async (req, res) => {
         phoneNumber: lead.phoneNumber,
         address: lead.address,
       },
+
       items: parsedItems.map((item) => ({
         productId: item.productId,
         description: item.description,
@@ -316,21 +229,24 @@ const createPurchaseOrder = async (req, res) => {
           ? new Date(item.licenseExpiryDate)
           : undefined,
         unitPrice: item.unitPrice ? Number(item.unitPrice) : 0,
-        totalPrice: item.unitPrice
-          ? Number(item.unitPrice) * Number(item.quantity)
-          : 0,
+        totalPrice:
+          item.unitPrice && item.quantity
+            ? Number(item.unitPrice) * Number(item.quantity)
+            : 0,
       })),
+
       paymentTerms,
       deliveryTerms,
       notes,
       poPdf: poPdfData,
-      attachments: additionalAttachments,
+
       createdBy: req.admin.id,
       superAdminId: getSuperAdminId(req),
+
       totalAmount: parsedItems.reduce(
-        (sum, item) =>
+        (sum, i) =>
           sum +
-          (item.unitPrice ? Number(item.unitPrice) * Number(item.quantity) : 0),
+          (i.unitPrice ? Number(i.unitPrice) * Number(i.quantity) : 0),
         0
       ),
     };
@@ -339,29 +255,20 @@ const createPurchaseOrder = async (req, res) => {
       poData.assignedUsers = assignedUsers;
     }
 
-    console.log("🧮 Pre-calculated values:", {
-      totalAmount: poData.totalAmount,
-      itemsCount: poData.items.length,
-      attachmentsCount: poData.attachments.length,
-    });
+    // ------------------------------------------------------------------
+    // 🎫 PO NUMBER + SAVE
+    // ------------------------------------------------------------------
+    poData.poNumber = await generateNextPONumber();
 
-    // Generate next purchase order number (because getNextPONumber is not a function)
-    const poNumber = await generateNextPONumber();
-    poData.poNumber = poNumber;
-    console.log("🎫 Generated PO number:", poNumber);
-
-    console.log("💾 Saving purchase order to database...");
     const purchaseOrder = await PurchaseOrder.create(poData);
 
-    await purchaseOrder.populate("leadId", "customerName contactPerson email");
-    await purchaseOrder.populate("quotationId", "quoteId totalQuoteValue");
-    await purchaseOrder.populate("createdBy", "name email");
-    await purchaseOrder.populate("assignedUsers.user", "name email");
-
-    console.log(
-      "✅ Purchase order created successfully:",
-      purchaseOrder.poNumber
-    );
+    await purchaseOrder.populate([
+      { path: "leadId", select: "customerName contactPerson email" },
+      { path: "quotationId", select: "quoteId totalQuoteValue" },
+      { path: "accountId", select: "customerName email phoneNumber" },
+      { path: "createdBy", select: "name email" },
+      { path: "assignedUsers.user", select: "name email" },
+    ]);
 
     res.status(201).json({
       success: true,
@@ -370,29 +277,13 @@ const createPurchaseOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Purchase order creation error:", error);
-
-    if (error.name === "ValidationError") {
-      const messages = Object.values(error.errors).map((val) => val.message);
-      console.error("📋 Validation errors:", messages);
-      return res.status(400).json({
-        success: false,
-        error: messages.join(", "),
-      });
-    }
-
-    if (error.name === "SyntaxError" && error.message.includes("JSON")) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid items format. Please provide valid JSON array.",
-      });
-    }
-
     res.status(500).json({
       success: false,
       error: error.message,
     });
   }
 };
+
 
 /**
  * ADD ATTACHMENT (update)
