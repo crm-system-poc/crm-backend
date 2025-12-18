@@ -117,6 +117,19 @@ const leadSchema = new mongoose.Schema({
     default: Date.now,
     index: true
   },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Account",
+    required: true,
+    index: true,
+  },
+  
+  superAdminId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Admin",
+    required: true,
+    index: true,
+  },  
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
@@ -192,5 +205,13 @@ leadSchema.statics.isEmailTakenForActiveLead = async function(email, excludeLead
   });
   return !!lead;
 };
+
+leadSchema.pre("validate", function (next) {
+  if (!this.superAdminId) {
+    return next(new Error("superAdminId is required for tenant isolation"));
+  }
+  next();
+});
+
 
 export default mongoose.model('Lead', leadSchema);

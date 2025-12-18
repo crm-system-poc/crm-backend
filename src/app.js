@@ -15,6 +15,12 @@ import reportRoutes from './routes/reportRoute.js';
 import fileRoutes from './routes/fileRoute.js';
 import productRoutes from './routes/productRoute.js';
 import inquiries from './routes/inquiryRoutes.js'
+import platformRoutes from './routes/pfRoutes/platformRoutes.js'
+import platformResellerRoutes from "./routes/pfRoutes/platformResellerRoutes.js"
+import oemRoutes from "./routes/oemRoutes.js"
+import accountRoutes from "./routes/accountRoutes.js"
+import { getOEMDropdown } from './controllers/oemController.js';
+
 
 const app = express();
 
@@ -47,6 +53,17 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/inquiries', inquiries);
+
+// Pf Routes
+app.use("/api/platform", platformRoutes);
+app.use("/api/platform/reseller", platformResellerRoutes);
+
+// oems
+app.use("/api/oems", oemRoutes);
+
+// Accounts 
+app.use("/api/accounts", accountRoutes);
+
 
 app.get('/health', (req, res) => {
   res.status(200).json({ 

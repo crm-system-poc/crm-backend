@@ -2,6 +2,8 @@ import PurchaseOrder from "../models/PurchaseOrder.js";
 import Lead from "../models/Lead.js";
 import Quotation from "../models/Quotation.js";
 import { uploadToS3, deleteFileFromS3 } from "../utils/s3Utils.js";
+import { getSuperAdminId } from "../utils/superAdmin.js";
+import mongoose from "mongoose";
 
 /**
  * Safely compare ObjectId / strings / docs having _id
@@ -9,17 +11,9 @@ import { uploadToS3, deleteFileFromS3 } from "../utils/s3Utils.js";
 const isSameId = (a, b) => {
   if (!a || !b) return false;
   const aStr =
-    typeof a === "string"
-      ? a
-      : a._id
-      ? a._id.toString()
-      : a.toString();
+    typeof a === "string" ? a : a._id ? a._id.toString() : a.toString();
   const bStr =
-    typeof b === "string"
-      ? b
-      : b._id
-      ? b._id.toString()
-      : b.toString();
+    typeof b === "string" ? b : b._id ? b._id.toString() : b.toString();
   return aStr === bStr;
 };
 
@@ -47,6 +41,38 @@ const canAccessPurchaseOrder = (po, admin, action) => {
 };
 
 /**
+ * Helper: Generate next Purchase Order number (fallback implementation)
+ * Format: PO-YYYY-<increment>
+ */
+const generateNextPONumber = async () => {
+  // Find the latest PO based on poNumber, sorted desc by poDate & createdAt as fallback.
+  const latestPO = await PurchaseOrder.findOne({})
+    .sort({ poDate: -1, createdAt: -1 })
+    .select("poNumber poDate")
+    .lean();
+
+  const currentYear = new Date().getFullYear().toString();
+
+  let nextIncrement = 1;
+  if (latestPO && latestPO.poNumber) {
+    // Expecting something like PO-2024-00125 or PO-2024-12
+    const poNumberParts = latestPO.poNumber.split("-");
+    if (poNumberParts.length === 3 && poNumberParts[1] === currentYear) {
+      const lastNumber = parseInt(poNumberParts[2], 10);
+      if (!isNaN(lastNumber)) {
+        nextIncrement = lastNumber + 1;
+      }
+    } else if (poNumberParts.length === 3) {
+      // Start from 1 if year changed
+      nextIncrement = 1;
+    }
+  }
+  // Pad to 5 digits (e.g. 00001)
+  const padded = String(nextIncrement).padStart(5, '0');
+  return `PO-${currentYear}-${padded}`;
+};
+
+/**
  * CREATE PURCHASE ORDER (create)
  */
 const createPurchaseOrder = async (req, res) => {
@@ -59,12 +85,14 @@ const createPurchaseOrder = async (req, res) => {
       deliveryTerms,
       notes,
       poDate,
+      
       assignedUsers, // optional: assign users at creation
     } = req.body;
 
     console.log("📝 Creating purchase order with data:", {
       leadId,
       quotationId,
+      superAdminId: getSuperAdminId(req),
       itemsCount: items
         ? typeof items === "string"
           ? JSON.parse(items).length
@@ -226,7 +254,10 @@ const createPurchaseOrder = async (req, res) => {
 
           console.log("✅ License file uploaded:", s3UploadResult.originalName);
         } catch (uploadError) {
-          console.error("⚠️ Failed to upload license file:", uploadError.message);
+          console.error(
+            "⚠️ Failed to upload license file:",
+            uploadError.message
+          );
         }
       }
     }
@@ -295,6 +326,7 @@ const createPurchaseOrder = async (req, res) => {
       poPdf: poPdfData,
       attachments: additionalAttachments,
       createdBy: req.admin.id,
+      superAdminId: getSuperAdminId(req),
       totalAmount: parsedItems.reduce(
         (sum, item) =>
           sum +
@@ -313,7 +345,8 @@ const createPurchaseOrder = async (req, res) => {
       attachmentsCount: poData.attachments.length,
     });
 
-    const poNumber = await PurchaseOrder.getNextPONumber();
+    // Generate next purchase order number (because getNextPONumber is not a function)
+    const poNumber = await generateNextPONumber();
     poData.poNumber = poNumber;
     console.log("🎫 Generated PO number:", poNumber);
 
@@ -376,7 +409,10 @@ const addAttachment = async (req, res) => {
       });
     }
 
-    const purchaseOrder = await PurchaseOrder.findById(id);
+    const purchaseOrder = await PurchaseOrder.findOne({
+      _id: id,
+      superAdminId: getSuperAdminId(req),
+    });
     if (!purchaseOrder) {
       return res.status(404).json({
         success: false,
@@ -440,7 +476,9 @@ const getAllPurchaseOrders = async (req, res) => {
       licenseType,
     } = req.query;
 
-    const filter = {};
+    const filter = {
+      superAdminId: getSuperAdminId(req),
+    };
 
     // Record-based access for list
     const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
@@ -503,7 +541,10 @@ const getAllPurchaseOrders = async (req, res) => {
  */
 const getPurchaseOrderById = async (req, res) => {
   try {
-    const purchaseOrder = await PurchaseOrder.findById(req.params.id)
+    const purchaseOrder = await PurchaseOrder.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    })
       .populate("leadId")
       .populate("quotationId")
       .populate("createdBy", "name email")
@@ -548,7 +589,10 @@ const updatePurchaseOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
-    const purchaseOrder = await PurchaseOrder.findById(req.params.id);
+    const purchaseOrder = await PurchaseOrder.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    });
 
     if (!purchaseOrder) {
       return res.status(404).json({
@@ -616,7 +660,7 @@ const getPurchaseOrdersByLead = async (req, res) => {
 
     const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
 
-    const conditions = { leadId };
+    const conditions = { leadId, superAdminId: getSuperAdminId(req) };
 
     if (!isSuperAdmin) {
       conditions.$or = [
@@ -662,8 +706,10 @@ const deletePurchaseOrder = async (req, res) => {
 
     console.log("🗑️ Deleting purchase order:", id);
 
-    const purchaseOrder = await PurchaseOrder.findById(id);
-
+    const purchaseOrder = await PurchaseOrder.findOne({
+      _id: id,
+      superAdminId: getSuperAdminId(req),
+    });
     if (!purchaseOrder) {
       return res.status(404).json({
         success: false,
@@ -682,10 +728,7 @@ const deletePurchaseOrder = async (req, res) => {
       try {
         await deleteFileFromS3(purchaseOrder.poPdf.s3Key);
       } catch (s3Error) {
-        console.error(
-          "⚠️ Failed to delete PO PDF from S3:",
-          s3Error.message
-        );
+        console.error("⚠️ Failed to delete PO PDF from S3:", s3Error.message);
       }
     }
 
@@ -702,7 +745,10 @@ const deletePurchaseOrder = async (req, res) => {
       }
     }
 
-    await PurchaseOrder.findByIdAndDelete(id);
+    await PurchaseOrder.deleteOne({
+      _id: id,
+      superAdminId: getSuperAdminId(req),
+    });
 
     console.log(
       "✅ Purchase order deleted successfully:",
@@ -742,12 +788,12 @@ const getExpiringLicenses = async (req, res) => {
   try {
     const { days = 30 } = req.query;
 
-    const allPOs = await PurchaseOrder.findWithExpiringLicenses(
-      parseInt(days)
-    );
+    const allPOs = await PurchaseOrder.findWithExpiringLicenses(parseInt(days));
 
     // Filter by record-based access
-    const visiblePOs = allPOs.filter((po) =>
+    const visiblePOs = allPOs
+    .filter(po => isSameId(po.superAdminId, getSuperAdminId(req)))
+    .filter((po) =>
       canAccessPurchaseOrder(po, req.admin, "read")
     );
 
@@ -775,27 +821,41 @@ const getPurchaseOrdersStats = async (req, res) => {
   try {
     console.log("📊 Fetching Purchase Order stats...");
 
-    const matchStage = {};
+    const tenantId = getSuperAdminId(req);
 
-    // Limit stats to accessible records for non SuperAdmin
-    if (req.admin.systemrole !== "SuperAdmin") {
-      matchStage.$or = [
-        { createdBy: req.admin._id },
-        { "assignedUsers.user": req.admin._id },
-      ];
-    }
+    // ✅ HARD tenant boundary (MANDATORY)
+    const tenantMatch = {
+      superAdminId: new mongoose.Types.ObjectId(tenantId),
+    };
 
-    const pipelineBase = Object.keys(matchStage).length
-      ? [{ $match: matchStage }]
-      : [];
+    // ✅ Optional record-level restriction (ONLY for users)
+    const recordMatch =
+      req.admin.systemrole === "SuperAdmin"
+        ? {}
+        : {
+            $or: [
+              { createdBy: req.admin._id },
+              { "assignedUsers.user": req.admin._id },
+            ],
+          };
 
+    // ✅ FINAL MATCH (tenant FIRST, always)
+    const matchStage = {
+      ...tenantMatch,
+      ...recordMatch,
+    };
+
+    const pipelineBase = [{ $match: matchStage }];
+
+    // ---------------- TOTAL COUNT ----------------
     const [totalPOsAgg] = await PurchaseOrder.aggregate([
       ...pipelineBase,
       { $count: "count" },
     ]);
 
-    const totalPOs = totalPOsAgg ? totalPOsAgg.count : 0;
+    const totalPOs = totalPOsAgg?.count || 0;
 
+    // ---------------- STATUS COUNTS ----------------
     const statusCounts = await PurchaseOrder.aggregate([
       ...pipelineBase,
       {
@@ -807,10 +867,8 @@ const getPurchaseOrdersStats = async (req, res) => {
     ]);
 
     const status = {
-      totalDraft:
-        statusCounts.find((s) => s._id === "draft")?.count || 0,
-      totalSent:
-        statusCounts.find((s) => s._id === "sent")?.count || 0,
+      totalDraft: statusCounts.find((s) => s._id === "draft")?.count || 0,
+      totalSent: statusCounts.find((s) => s._id === "sent")?.count || 0,
       totalAcknowledged:
         statusCounts.find((s) => s._id === "acknowledged")?.count || 0,
       totalInProgress:
@@ -821,28 +879,26 @@ const getPurchaseOrdersStats = async (req, res) => {
         statusCounts.find((s) => s._id === "cancelled")?.count || 0,
     };
 
+    // ---------------- TOTAL AMOUNT ----------------
     const totalData = await PurchaseOrder.aggregate([
       ...pipelineBase,
       { $group: { _id: null, totalAmountSum: { $sum: "$totalAmount" } } },
     ]);
 
-    const totalAmountSum =
-      totalData.length > 0 ? totalData[0].totalAmountSum : 0;
+    const totalAmountSum = totalData[0]?.totalAmountSum || 0;
 
+    // ---------------- LICENSE STATS ----------------
     const now = new Date();
+    const next30Days = new Date(Date.now() + 30 * 86400000);
+
     const expiredLicenses = await PurchaseOrder.countDocuments({
       ...matchStage,
       "items.licenseExpiryDate": { $lt: now },
     });
 
-    const next30Days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
     const expiringSoonLicenses = await PurchaseOrder.countDocuments({
       ...matchStage,
-      "items.licenseExpiryDate": {
-        $gte: now,
-        $lte: next30Days,
-      },
+      "items.licenseExpiryDate": { $gte: now, $lte: next30Days },
     });
 
     res.json({
@@ -851,7 +907,6 @@ const getPurchaseOrdersStats = async (req, res) => {
         totalPOs,
         status,
         attachmentSummary: {
-          // Optionally could be made record-based with aggregate and matchStage
           totalWithPDF: await PurchaseOrder.countDocuments({
             ...matchStage,
             poPdf: { $exists: true },
@@ -878,6 +933,7 @@ const getPurchaseOrdersStats = async (req, res) => {
     });
   }
 };
+
 
 export {
   createPurchaseOrder,

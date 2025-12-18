@@ -43,7 +43,12 @@ const inquirySchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-
+    superAdminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      required: true,
+      index: true,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
@@ -84,8 +89,9 @@ const inquirySchema = new mongoose.Schema(
 // Performance indexes
 inquirySchema.index({ createdBy: 1 });
 inquirySchema.index({ "assignedUsers.user": 1 });
-inquirySchema.index({ status: 1 });
-inquirySchema.index({ phoneNumber: 1 });
 inquirySchema.index({ isDeleted: 1 });
+inquirySchema.index({ superAdminId: 1 });
+inquirySchema.index({ superAdminId: 1, phoneNumber: 1 });
+inquirySchema.index({ superAdminId: 1, status: 1 });
 
 export default mongoose.model("Inquiry", inquirySchema);

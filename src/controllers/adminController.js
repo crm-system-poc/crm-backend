@@ -138,6 +138,12 @@ const getProfile = async (req, res) => {
   try {
     const admin = await Admin.findById(req.admin.id);
 
+    console.log("👤 Admin from DB:", {
+      id: admin._id.toString(),
+      systemrole: admin.systemrole,
+      superAdminId: admin.superAdminId?.toString()
+    });
+
     res.json({
       success: true,
       data: admin,

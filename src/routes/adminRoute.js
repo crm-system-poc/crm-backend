@@ -19,13 +19,14 @@ const router = express.Router();
 
 router.post('/setup', setupAdmin);
 router.post('/login', loginAdmin);
+router.post('/logout', logoutAdmin);
 
 router.use(authMiddleware);
 
 router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
 router.put('/change-password', changePassword);
-router.post('/logout', logoutAdmin);
+
 
 // Get All Users
 router.get(

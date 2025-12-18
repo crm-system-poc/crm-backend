@@ -45,4 +45,6 @@ router.delete(
   deleteProduct
 );
 
+// router.get("/by-oem/:oemName", authMiddleware, getProductsByOEM);
+
 export default router;

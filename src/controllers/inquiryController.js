@@ -1,5 +1,6 @@
 import Inquiry from "../models/Inquiry.js";
 import Lead from "../models/Lead.js";
+import { getSuperAdminId } from "../utils/superAdmin.js";
 
 
 export const isSameId = (a, b) => {
@@ -28,6 +29,7 @@ export const createInquiry = async (req, res) => {
   try {
     const inquiry = await Inquiry.create({
       ...req.body,
+      superAdminId: getSuperAdminId(req),
       createdBy: req.admin.id,
     });
 
@@ -47,6 +49,7 @@ export const getAllInquiries = async (req, res) => {
 
     const filter = {
       isDeleted: false,
+      superAdminId: getSuperAdminId(req),
       ...(isSuperAdmin
         ? {}
         : {
@@ -70,7 +73,10 @@ export const getAllInquiries = async (req, res) => {
 
 export const getInquiryById = async (req, res) => {
   try {
-    const inquiry = await Inquiry.findById(req.params.id)
+     const inquiry = await Inquiry.findOne({
+         _id: req.params.id,
+        superAdminId: getSuperAdminId(req),
+      })
       .populate("createdBy", "name email")
       .populate("assignedUsers.user", "name email");
 
@@ -90,7 +96,10 @@ export const getInquiryById = async (req, res) => {
 
 export const updateInquiry = async (req, res) => {
   try {
-    const inquiry = await Inquiry.findById(req.params.id);
+    const inquiry = await Inquiry.findOne({
+      _id: req.params.id,
+     superAdminId: getSuperAdminId(req),
+   })
 
     if (!inquiry || inquiry.isDeleted) {
       return res.status(404).json({
@@ -135,7 +144,10 @@ export const updateInquiry = async (req, res) => {
 
 export const deleteInquiry = async (req, res) => {
   try {
-    const inquiry = await Inquiry.findById(req.params.id);
+    const inquiry = await Inquiry.findOne({
+      _id: req.params.id,
+     superAdminId: getSuperAdminId(req),
+   });
 
     if (!inquiry || inquiry.isDeleted) {
       return res.status(404).json({
@@ -208,6 +220,7 @@ export const convertInquiryToLead = async (req, res) => {
       estimatedValue: 0,
       sfdcDate,
       createdBy: req.admin.id,
+      superAdminId: getSuperAdminId(req),
       address: {
         street: inquiry.city || "Not Provided",
         city: inquiry.city || "Not Provided",

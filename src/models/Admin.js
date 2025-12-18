@@ -33,7 +33,7 @@ const permissionSchema = new mongoose.Schema(
     manageProducts: { type: Boolean, default: false },
     productsActions: actionSchema,
 
-    manageInquiry: { type: Boolean, default: true },
+    manageInquiry: { type: Boolean, default: false },
     inquiryActions: actionSchema,
   },
   { _id: false }
@@ -48,6 +48,7 @@ const adminSchema = new mongoose.Schema(
       minlength: [2, "Name must be at least 2 characters"],
       maxlength: [50, "Name cannot exceed 50 characters"],
     },
+   
     email: {
       type: String,
       required: [true, "Email is required"],
@@ -59,6 +60,14 @@ const adminSchema = new mongoose.Schema(
         "Please enter a valid email",
       ],
     },
+
+    superAdminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,   // This will be set after reseller superadmin creation
+      index: true
+    },
+
     password: {
       type: String,
       required: [true, "Password is required"],
@@ -91,6 +100,7 @@ const adminSchema = new mongoose.Schema(
         "Telecaller",
         "Support Executive",
         "Manager",
+        "SuperAdmin",
         "Other",
       ],
       default: "Sale Executive",
@@ -153,5 +163,8 @@ adminSchema.statics.findByCredentials = async function (email, password) {
 
   return admin;
 };
+
+adminSchema.index({ superAdminId: 1 });
+
 
 export default mongoose.model("Admin", adminSchema);

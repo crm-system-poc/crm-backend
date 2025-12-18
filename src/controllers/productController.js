@@ -1,4 +1,5 @@
 import Product from "../models/Product.js";
+import { getSuperAdminId } from "../utils/superAdmin.js";
 
 const buildFilter = ({ search, category, oem, minPrice, maxPrice }) => {
   const filter = {};
@@ -57,23 +58,23 @@ const createProduct = async (req, res) => {
     }
 
     const [idTaken, codeTaken] = await Promise.all([
-      Product.isProductIdTaken(productId),
-      Product.isCodeTaken(productCode),
+      Product.findOne({ productId, superAdminId: getSuperAdminId(req) }),
+      Product.findOne({ productCode, superAdminId: getSuperAdminId(req) }),
     ]);
 
-    if (idTaken) {
+    if (idTaken || codeTaken) {
       return res.status(400).json({
         success: false,
         error: "Product already exists",
       });
     }
 
-    if (codeTaken) {
-      return res.status(400).json({
-        success: false,
-        error: "Product already exists",
-      });
-    }
+    // if (codeTaken) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     error: "Product already exists",
+    //   });
+    // }
 
     const product = await Product.create({
       productId,
@@ -84,6 +85,7 @@ const createProduct = async (req, res) => {
       description,
       oemPrice,
       sellingPrice,
+      superAdminId: getSuperAdminId(req),
       createdBy: req.admin.id,
       updatedBy: req.admin.id,
     });
@@ -135,6 +137,7 @@ const getProducts = async (req, res) => {
       maxPrice,
     });
 
+    filter.superAdminId = getSuperAdminId(req);
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
 
@@ -175,7 +178,10 @@ const getProducts = async (req, res) => {
 
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate([
+    const product = await Product.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    }).populate([
       { path: "createdBy", select: "name email" },
       { path: "updatedBy", select: "name email" },
     ]);
@@ -218,7 +224,10 @@ const updateProduct = async (req, res) => {
       sellingPrice,
     } = req.body;
 
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    });
 
     if (!product) {
       return res.status(404).json({
@@ -228,7 +237,11 @@ const updateProduct = async (req, res) => {
     }
 
     if (productCode && productCode !== product.productCode) {
-      const isTaken = await Product.isCodeTaken(productCode, req.params.id);
+      const isTaken = await Product.findOne({
+        productCode,
+        superAdminId: getSuperAdminId(req),
+        _id: { $ne: req.params.id },
+      });
       if (isTaken) {
         return res.status(400).json({
           success: false,
@@ -239,7 +252,11 @@ const updateProduct = async (req, res) => {
     }
 
     if (productId && productId !== product.productId) {
-      const idTaken = await Product.isProductIdTaken(productId, req.params.id);
+      const idTaken = await Product.findOne({
+        productId,
+        superAdminId: getSuperAdminId(req),
+        _id: { $ne: req.params.id },
+      });
       if (idTaken) {
         return res.status(400).json({
           success: false,
@@ -299,7 +316,10 @@ const updateProduct = async (req, res) => {
 
 const deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    });
 
     if (!product) {
       return res.status(404).json({
@@ -308,7 +328,10 @@ const deleteProduct = async (req, res) => {
       });
     }
 
-    await Product.findByIdAndDelete(req.params.id);
+    await Product.deleteOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    });
 
     res.json({
       success: true,
@@ -335,4 +358,3 @@ export {
   updateProduct,
   deleteProduct,
 };
-

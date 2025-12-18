@@ -17,10 +17,11 @@ export const authMiddleware = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log("🔐 JWT decoded:", decoded);
 
     // Always load full admin with permissions
     const admin = await Admin.findById(decoded.id).select(
-      "name email phone systemrole isActive permissions lastLogin"
+      "name email phone systemrole superAdminId isActive permissions lastLogin"
     );
 
     if (!admin) {

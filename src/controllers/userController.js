@@ -1,4 +1,5 @@
-import Admin from '../models/Admin.js';
+import Admin from "../models/Admin.js";
+import { getSuperAdminId } from "../utils/superAdmin.js";
 
 const createUser = async (req, res) => {
   try {
@@ -11,24 +12,28 @@ const createUser = async (req, res) => {
     if (!name || !email || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Name, email & password are required'
+        error: "Name, email & password are required",
       });
     }
 
-  
-    const existingEmail = await Admin.findOne({ email });
+    const existingEmail = await Admin.findOne({
+      email,
+      superAdminId: getSuperAdminId(req),
+    });
     if (existingEmail) {
       return res.status(400).json({ error: "Email already exists" });
     }
 
     if (phone) {
-      const existingphone = await Admin.findOne({ phone });
+      const existingphone = await Admin.findOne({
+        phone,
+        superAdminId: getSuperAdminId(req),
+      });
       if (existingphone) {
         return res.status(400).json({ error: "phone already exists" });
       }
     }
 
-  
     const user = await Admin.create({
       name,
       email,
@@ -37,25 +42,27 @@ const createUser = async (req, res) => {
       systemrole: "User",
       role: role,
       permissions: permissions || {},
+      superAdminId: getSuperAdminId(req),
     });
 
     res.status(201).json({
       success: true,
       message: "User created successfully",
-      user
+      user,
     });
-
   } catch (error) {
     res.status(400).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-
-const getAllUsers = async (_, res) => {
-  const users = await Admin.find({ systemrole: "User" });
+const getAllUsers = async (req, res) => {
+  const users = await Admin.find({
+    systemrole: "User",
+    superAdminId: getSuperAdminId(req),
+  });
   res.json(users);
 };
 
@@ -70,7 +77,7 @@ const updatePermissions = async (req, res) => {
     if (!permissions && !role) {
       return res.status(400).json({
         success: false,
-        message: "Permissions or role data is required"
+        message: "Permissions or role data is required",
       });
     }
 
@@ -81,7 +88,11 @@ const updatePermissions = async (req, res) => {
     if (role) updateFields.role = role;
 
     const user = await Admin.findOneAndUpdate(
-      { _id: userId, systemrole: "User" },
+      {
+        _id: userId,
+        systemrole: "User",
+        superAdminId: getSuperAdminId(req),
+      },
       updateFields,
       { new: true }
     );
@@ -93,13 +104,12 @@ const updatePermissions = async (req, res) => {
     res.json({
       success: true,
       message: "User updated successfully",
-      user
+      user,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 const getUserById = async (req, res) => {
   try {
@@ -109,21 +119,20 @@ const getUserById = async (req, res) => {
 
     const user = await Admin.findOne({
       _id: req.params.id,
-      systemrole: "User"
+      systemrole: "User",
+      superAdminId: getSuperAdminId(req),
     });
 
-    if (!user)
-      return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: "User not found" });
 
     res.json({
       success: true,
-      user
+      user,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -136,7 +145,8 @@ const deleteUserById = async (req, res) => {
 
     const deletedUser = await Admin.findOneAndDelete({
       _id: req.params.id,
-      systemrole: "User"
+      systemrole: "User",
+      superAdminId: getSuperAdminId(req),
     });
 
     if (!deletedUser)
@@ -144,13 +154,12 @@ const deleteUserById = async (req, res) => {
 
     res.json({
       success: true,
-      message: "User deleted successfully"
+      message: "User deleted successfully",
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -160,5 +169,5 @@ export {
   getAllUsers,
   getUserById,
   updatePermissions,
-  deleteUserById
+  deleteUserById,
 };

@@ -1,6 +1,7 @@
 import Quotation from "../models/Quotation.js";
 import Lead from "../models/Lead.js";
 import { uploadToS3 } from "../utils/s3Utils.js";
+import { getSuperAdminId } from "../utils/superAdmin.js";
 
 // Helper to compare ObjectId / string consistently
 export const isSameId = (a, b) => {
@@ -36,15 +37,50 @@ export const canAccessQuotation = (quotation, admin, action) => {
 const getQuotationStats = async (req, res) => {
   try {
     console.log("📊 Fetching quotation stats…");
-    const totalQuotations = await Quotation.countDocuments();
-    const totalPending = await Quotation.countDocuments({ status: "draft" });
+    const AdminId = getSuperAdminId(req);
+
+    const totalQuotations = await Quotation.countDocuments({
+      superAdminId: AdminId,
+    });
+
+    const trendData = await Quotation.aggregate([
+      {
+        $match: { superAdminId: AdminId },
+      },
+      {
+        $group: {
+          _id: { $month: "$createdAt" },
+          quotations: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id": 1 } },
+    ]);
+    
+    const formattedTrend = trendData.map((q) => ({
+      month: q._id,
+      quotations: q.quotations,
+    }));
+
+    const totalPending = await Quotation.countDocuments({
+      status: "draft",
+      superAdminId: AdminId,
+    });
+
     const totalApproved = await Quotation.countDocuments({
       status: "accepted",
+      superAdminId: AdminId,
     });
+
     const totalRejected = await Quotation.countDocuments({
       status: "rejected",
+      superAdminId: AdminId,
     });
-    const totalExpired = await Quotation.countDocuments({ status: "expired" });
+
+    const totalExpired = await Quotation.countDocuments({
+      status: "expired",
+      superAdminId: AdminId,
+    });
+
     // optional
     const totalWithPDF = await Quotation.countDocuments({
       pdfFile: { $exists: true },
@@ -53,8 +89,10 @@ const getQuotationStats = async (req, res) => {
       pdfFile: { $exists: false },
     });
     const totalData = await Quotation.aggregate([
+      { $match: { superAdminId: AdminId } },
       { $group: { _id: null, totalGrand: { $sum: "$grandTotal" } } },
     ]);
+
     const totalGrandValue = totalData.length > 0 ? totalData[0].totalGrand : 0;
     res.json({
       success: true,
@@ -67,6 +105,7 @@ const getQuotationStats = async (req, res) => {
         totalWithPDF,
         totalWithoutPDF,
         totalGrandValue,
+        trendData: formattedTrend
       },
     });
   } catch (error) {
@@ -84,32 +123,92 @@ const createQuotation = async (req, res) => {
       validityDays = 30,
       notes,
       termsAndConditions,
+
+      customerName,
+      contactPerson,
+      email,
+      phoneNumber,
+      address,
+
+      pdfFile,
     } = req.body;
 
     const lead = await Lead.findById(leadId);
-    if (!lead)
+    if (!lead) {
       return res.status(404).json({ success: false, error: "Lead not found" });
+    }
 
-    const parsedItems = typeof items === "string" ? JSON.parse(items) : items;
-    if (!parsedItems?.length)
-      return res.status(400).json({ success: false, error: "Items required" });
+    if (
+      !customerName ||
+      !contactPerson ||
+      !email ||
+      !phoneNumber ||
+      !address
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Missing/required customer fields: Customer Name, Contact Person, Email, Phone Number, Address",
+      });
+    }
+
+    const parsedItems =
+      typeof items === "string" ? JSON.parse(items) : items;
+
+    const calculatedItems = parsedItems.map((i) => ({
+      ...i,
+      total: Number(i.unitPrice) * Number(i.quantity),
+    }));
+
+    const totalQuoteValue = calculatedItems.reduce(
+      (sum, i) => sum + i.total,
+      0
+    );
+
+    let parsedPdfFile;
+
+    if (pdfFile) {
+      const raw =
+        typeof pdfFile === "string" && pdfFile.startsWith("{")
+          ? JSON.parse(pdfFile)
+          : null;
+    
+      if (raw) {
+        parsedPdfFile = {
+          s3Key: raw.key,
+          s3Url: raw.url,
+          originalName: raw.originalName,
+          fileSize: raw.fileSize,
+        };
+      }
+    }
+    
 
     const quotation = await Quotation.create({
       leadId,
       createdBy: req.admin.id,
-      items: parsedItems.map((i) => ({
-        ...i,
-        total: i.unitPrice * i.quantity,
-      })),
-      totalQuoteValue: parsedItems.reduce(
-        (s, i) => s + i.unitPrice * i.quantity,
-        0
-      ),
-      taxRate,
+      superAdminId: getSuperAdminId(req),
+
+      customerDetails: {
+        customerName,
+        contactPerson,
+        email,
+        phoneNumber,
+        address,
+      },
+
+      items: calculatedItems,
+      totalQuoteValue,
+      taxRate: Number(taxRate),
       notes,
       termsAndConditions,
-      validityDays,
-      validUntil: new Date(Date.now() + validityDays * 86400000),
+      validityDays: Number(validityDays),
+      validUntil: new Date(
+        Date.now() + Number(validityDays) * 86400000
+      ),
+
+      // ✅ PDF STORED
+      pdfFile: parsedPdfFile,
     });
 
     await quotation.populate("createdBy", "name email");
@@ -120,14 +219,18 @@ const createQuotation = async (req, res) => {
       data: quotation,
     });
   } catch (error) {
+    console.error("❌ Create quotation error:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
+
 const deleteQuotation = async (req, res) => {
   try {
-    const quotation = await Quotation.findById(req.params.id);
-
+    const quotation = await Quotation.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+     });
     if (!quotation)
       return res.status(404).json({ success: false, error: "Not found" });
 
@@ -146,7 +249,10 @@ const deleteQuotation = async (req, res) => {
 
 const deleteQuotationPDF = async (req, res) => {
   try {
-    const quotation = await Quotation.findById(req.params.id);
+    const quotation = await Quotation.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+     })
 
     if (!quotation) {
       return res.status(404).json({
@@ -189,14 +295,16 @@ const getAllQuotations = async (req, res) => {
   try {
     const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
 
-    const filter = isSuperAdmin
-      ? {}
-      : {
-          $or: [
-            { createdBy: req.admin.id },
-            { "assignedUsers.user": req.admin.id },
-          ],
-        };
+    const filter = {
+      superAdminId: getSuperAdminId(req),
+      };
+      
+      if (!isSuperAdmin) {
+        filter.$or = [
+          { createdBy: req.admin.id },
+          { "assignedUsers.user": req.admin.id },
+        ];
+      }
 
     const quotations = await Quotation.find(filter)
       .populate("createdBy", "name email")
@@ -216,10 +324,13 @@ const getAllQuotations = async (req, res) => {
 
 const getQuotationById = async (req, res) => {
   try {
-    const quotation = await Quotation.findById(req.params.id)
-      .populate("createdBy", "name email")
-      .populate("assignedUsers.user", "name email")
-      .populate("leadId");
+     const quotation = await Quotation.findOne({
+       _id: req.params.id,
+       superAdminId: getSuperAdminId(req),
+      })
+        .populate("createdBy", "name email")
+        .populate("assignedUsers.user", "name email")
+        .populate("leadId");
 
     if (!quotation)
       return res.status(404).json({ success: false, error: "Not found" });
@@ -238,7 +349,10 @@ const getQuotationById = async (req, res) => {
 
 const updateQuotationStatus = async (req, res) => {
   try {
-    const quotation = await Quotation.findById(req.params.id);
+    const quotation = await Quotation.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+     });
 
     if (!quotation)
       return res.status(404).json({ success: false, error: "Not found" });
@@ -270,6 +384,7 @@ const getQuotationsByLead = async (req, res) => {
 
     const conditions = {
       leadId,
+      superAdminId: getSuperAdminId(req),
       ...(isSuperAdmin ? {} : { createdBy: req.admin.id }),
     };
 

@@ -47,6 +47,12 @@ const productSchema = new mongoose.Schema(
       min: [0, "Selling price cannot be negative"],
       required: [true, "Selling price is required"],
     },
+    superAdminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      required: true,
+      index: true,
+    },    
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
@@ -95,6 +101,8 @@ productSchema.index({ productCode: 1 });
 productSchema.index({ productName: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ oem: 1 });
+productSchema.index({ superAdminId: 1, productId: 1 }, { unique: true });
+productSchema.index({ superAdminId: 1, productCode: 1 }, { unique: true });
 
 export default mongoose.model("Product", productSchema);
 

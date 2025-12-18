@@ -1,4 +1,5 @@
 import Lead from "../models/Lead.js";
+import { getSuperAdminId } from "../utils/superAdmin.js";
 
 const STATUS_LIST = [
   "new",
@@ -13,8 +14,10 @@ const STATUS_LIST = [
 // Small helper to safely compare ObjectIds or populated docs
 const isSameId = (a, b) => {
   if (!a || !b) return false;
-  const aStr = typeof a === "string" ? a : a._id ? a._id.toString() : a.toString();
-  const bStr = typeof b === "string" ? b : b._id ? b._id.toString() : b.toString();
+  const aStr =
+    typeof a === "string" ? a : a._id ? a._id.toString() : a.toString();
+  const bStr =
+    typeof b === "string" ? b : b._id ? b._id.toString() : b.toString();
   return aStr === bStr;
 };
 
@@ -34,8 +37,8 @@ const canAccessLead = (lead, admin, action) => {
   if (isCreator) return true;
 
   // 3) Check assignedUsers permissions
-  const assignedEntry = (lead.assignedUsers || []).find((a) =>
-    isSameId(a.user, admin.id) || isSameId(a.user?._id, admin.id)
+  const assignedEntry = (lead.assignedUsers || []).find(
+    (a) => isSameId(a.user, admin.id) || isSameId(a.user?._id, admin.id)
   );
 
   if (!assignedEntry || !assignedEntry.permissions) return false;
@@ -91,6 +94,7 @@ export const createLead = async (req, res) => {
       estimatedValue,
       followUpDate,
       createdBy: req.admin.id,
+      superAdminId: getSuperAdminId(req),
       // If you use assignedTo array separately, you can derive from assignedUsers if needed
       assignedUsers: assignedUsers || [],
     });
@@ -133,37 +137,36 @@ export const getAllLeads = async (req, res) => {
       source,
     } = req.query;
 
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    const baseFilter = {};
+    const tenantId = getSuperAdminId(req);
 
-    
+    // 🔐 ALWAYS apply tenant filter
+    const filter = {
+      superAdminId: tenantId,
+    };
+
+    // 🔎 Search
     if (search) {
-      baseFilter.$or = [
+      filter.$or = [
         { customerName: { $regex: search, $options: "i" } },
         { contactPerson: { $regex: search, $options: "i" } },
         { email: { $regex: search, $options: "i" } },
         { phoneNumber: { $regex: search, $options: "i" } },
         { location: { $regex: search, $options: "i" } },
-     
       ];
     }
 
+    if (status) filter.status = status;
+    if (priority) filter.priority = priority;
+    if (source) filter.source = source;
 
-    
-  
-    if (status) baseFilter.status = status;
-    if (priority) baseFilter.priority = priority;
-    if (source) baseFilter.source = source;
-
-    const filter = { ...baseFilter };
-
-    // Record-based restriction for non-SuperAdmin
+    // 👤 Record-level access ONLY for non-SuperAdmin
     if (req.admin.systemrole !== "SuperAdmin") {
       filter.$and = [
-        baseFilter,
+        { superAdminId: tenantId },
         {
           $or: [
             { createdBy: req.admin.id },
@@ -178,11 +181,12 @@ export const getAllLeads = async (req, res) => {
           ],
         },
       ];
-      delete filter.$or; // move search $or inside $and if needed
+
+      // prevent conflict
+      delete filter.superAdminId;
     }
 
-    const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
+    const sortOptions = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
 
     const leads = await Lead.find(filter)
       .populate("createdBy", "name email")
@@ -192,7 +196,6 @@ export const getAllLeads = async (req, res) => {
       .limit(limitNum);
 
     const total = await Lead.countDocuments(filter);
-    const totalPages = Math.ceil(total / limitNum);
 
     res.json({
       success: true,
@@ -201,9 +204,7 @@ export const getAllLeads = async (req, res) => {
         page: pageNum,
         limit: limitNum,
         total,
-        totalPages,
-        hasNext: pageNum < totalPages,
-        hasPrev: pageNum > 1,
+        totalPages: Math.ceil(total / limitNum),
       },
     });
   } catch (error) {
@@ -215,11 +216,17 @@ export const getAllLeads = async (req, res) => {
   }
 };
 
+
+
+
 // --------------------------- GET BY ID ---------------------------
 
 export const getLeadById = async (req, res) => {
   try {
-    const lead = await Lead.findById(req.params.id)
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    })
       .populate("createdBy", "name email systemrole")
       .populate("assignedUsers.user", "name email");
 
@@ -278,7 +285,10 @@ export const updateLead = async (req, res) => {
       assignedUsers, // optional update of assignment too
     } = req.body;
 
-    const lead = await Lead.findById(req.params.id)
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    })
       .populate("createdBy", "name email systemrole")
       .populate("assignedUsers.user", "name email");
 
@@ -383,7 +393,10 @@ export const updateLead = async (req, res) => {
 
 export const deleteLead = async (req, res) => {
   try {
-    const lead = await Lead.findById(req.params.id)
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    })
       .populate("createdBy", "name email systemrole")
       .populate("assignedUsers.user", "name email");
 
@@ -426,7 +439,12 @@ export const deleteLead = async (req, res) => {
 
 export const getLeadStats = async (req, res) => {
   try {
+    const adminId = getSuperAdminId(req);
+
     const statsAgg = await Lead.aggregate([
+      {
+        $match: { superAdminId: adminId },
+      },
       {
         $group: {
           _id: "$status",
@@ -435,6 +453,28 @@ export const getLeadStats = async (req, res) => {
         },
       },
     ]);
+
+    // 📈 Monthly Lead Trend
+const trendData = await Lead.aggregate([
+  {
+    $match: { superAdminId: adminId },
+  },
+  {
+    $group: {
+      _id: { $month: "$createdAt" },
+      leads: { $sum: 1 },
+    },
+  },
+  {
+    $sort: { "_id": 1 },
+  },
+]);
+
+const formattedTrend = trendData.map((item) => ({
+  month: item._id,
+  leads: item.leads,
+}));
+
 
     const statsMap = {};
     statsAgg.forEach((stat) => {
@@ -449,16 +489,18 @@ export const getLeadStats = async (req, res) => {
       (status) => statsMap[status] || { status, count: 0, totalValue: 0 }
     );
 
-    const totalLeads = await Lead.countDocuments();
+    const totalLeads = await Lead.countDocuments({ superAdminId: adminId });
 
     const totalValueResult = await Lead.aggregate([
-      {
-        $group: {
-          _id: null,
-          total: { $sum: { $ifNull: ["$estimatedValue", 0] } },
+      { $match: { superAdminId: adminId } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ["$estimatedValue", 0] } },
+          },
         },
-      },
-    ]);
+      ]);
+      
     const totalValue = totalValueResult[0]?.total || 0;
 
     res.json({
@@ -467,6 +509,7 @@ export const getLeadStats = async (req, res) => {
         byStatus,
         totalLeads,
         totalValue,
+        trendData: formattedTrend,
       },
     });
   } catch (error) {
@@ -490,11 +533,13 @@ export const getLeadsByCustomer = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const baseFilter = {
-      $or: [
-        { customerName: { $regex: customerIdentifier, $options: "i" } },
-        { email: { $regex: customerIdentifier, $options: "i" } },
-      ],
-    };
+      superAdminId: getSuperAdminId(req),
+        $or: [
+          { customerName: { $regex: customerIdentifier, $options: "i" } },
+          { email: { $regex: customerIdentifier, $options: "i" } },
+        ],
+      };
+      
 
     const filter = { ...baseFilter };
 
