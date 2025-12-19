@@ -47,7 +47,14 @@ const accountSchema = new mongoose.Schema(
 
     location: String,
 
-    // 🔐 Tenant isolation
+    // Add isActive field
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+
+ 
     superAdminId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",

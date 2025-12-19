@@ -294,29 +294,71 @@ const deleteQuotationPDF = async (req, res) => {
 const getAllQuotations = async (req, res) => {
   try {
     const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
+    const superAdminId = getSuperAdminId(req);
 
-    const filter = {
-      superAdminId: getSuperAdminId(req),
-      };
-      
-      if (!isSuperAdmin) {
-        filter.$or = [
-          { createdBy: req.admin.id },
-          { "assignedUsers.user": req.admin.id },
-        ];
-      }
+    // Basic filter
+    const filter = { superAdminId };
 
-    const quotations = await Quotation.find(filter)
-      .populate("createdBy", "name email")
-      .populate("assignedUsers.user", "name email")
-      .sort({ createdAt: -1 });
+    // Permission restriction
+    if (!isSuperAdmin) {
+      filter.$or = [
+        { createdBy: req.admin.id },
+        { "assignedUsers.user": req.admin.id },
+      ];
+    }
 
-    // filter out records user has no read permission on
+    // --- Filtering ---
+    // Supports status, leadId, search
+    if (req.query.status && req.query.status !== "all") {
+      filter.status = req.query.status;
+    }
+
+    if (req.query.leadId) {
+      filter.leadId = req.query.leadId;
+    }
+
+    // Simple search by quoteId or customerName
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, "i");
+      filter.$or = [
+        ...(filter.$or || []),
+        { quoteId: searchRegex },
+      ];
+      // To search in a populated/ref path (customerName on lead), will need aggregation if deeper
+    }
+
+    // --- Pagination ---
+    const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
+    const limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 10;
+    const skip = (page - 1) * limit;
+
+    const [total, quotations] = await Promise.all([
+      Quotation.countDocuments(filter),
+      Quotation.find(filter)
+        .populate("createdBy", "name email")
+        .populate("assignedUsers.user", "name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+    ]);
+
+    // Filter out records user has no read permission on
     const visible = quotations.filter((q) =>
       canAccessQuotation(q, req.admin, "read")
     );
 
-    res.json({ success: true, data: visible });
+    // The visible count may be less than limit. 
+    // But for UX, total should be the count of query before this permission filtering.
+    res.json({
+      success: true,
+      data: visible,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
