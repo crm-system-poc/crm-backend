@@ -5,6 +5,7 @@ import {
   getAccountById,
   updateAccount,
   deleteAccount,
+  getAccountRelatedData,
 } from "../controllers/accountController.js";
 
 import { authMiddleware, authorize } from "../middlewares/authMiddleware.js";
@@ -23,6 +24,12 @@ router.get(
   "/",
   authorize("manageLeads", "read"),
   getAllAccounts
+);
+
+router.get(
+  "/:id/related",
+  authorize("manageLeads", "read"),
+  getAccountRelatedData
 );
 
 router.get(

@@ -8,7 +8,8 @@ import {
   getPurchaseOrdersByLead,
   deletePurchaseOrder,
   getExpiringLicenses,
-  getPurchaseOrdersStats
+  getPurchaseOrdersStats,
+  createSalesPOFromExistingPO
 } from '../controllers/purchaseOrderController.js';
 import { authMiddleware , authorize} from '../middlewares/authMiddleware.js';
 import { uploadFields } from '../middlewares/uploadMiddleware.js';
@@ -46,6 +47,15 @@ router.put("/:id/reassign",
   authorize("managePurchaseOrder", "update"),
   reassignPurchaseOrder
 );
+
+// Sales
+
+router.post(
+  "/:basePoId/create-sales-po",
+  authorize("managePurchaseOrder", "create"),
+  createSalesPOFromExistingPO
+);
+
 
 
 export default router;

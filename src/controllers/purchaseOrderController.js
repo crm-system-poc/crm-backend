@@ -369,6 +369,7 @@ const getAllPurchaseOrders = async (req, res) => {
 
     const filter = {
       superAdminId: getSuperAdminId(req),
+      poType: "base",
     };
 
     // Record-based access for list
@@ -825,6 +826,83 @@ const getPurchaseOrdersStats = async (req, res) => {
   }
 };
 
+const createSalesPOFromExistingPO = async (req, res) => {
+  try {
+    const { basePoId } = req.params;
+    const { poNumber, poDate, paymentTerms, amcPeriod, rewardId } = req.body;
+
+    const tenantId = getSuperAdminId(req);
+
+    // 1️⃣ Fetch BASE PO (tenant safe)
+    const basePO = await PurchaseOrder.findOne({
+      _id: basePoId,
+      superAdminId: tenantId,
+      poType: "base",
+    });
+
+    if (!basePO) {
+      return res.status(404).json({
+        success: false,
+        error: "Base Purchase Order not found",
+      });
+    }
+
+    // 2️⃣ Prevent duplicate Sales PO
+    const alreadyExists = await PurchaseOrder.findOne({
+      parentPoId: basePO._id,
+      poType: "sales",
+    });
+
+    if (alreadyExists) {
+      return res.status(400).json({
+        success: false,
+        error: "Sales PO already exists for this Purchase Order",
+      });
+    }
+
+    // 3️⃣ Create SALES PO
+    const salesPO = await PurchaseOrder.create({
+      poNumber,
+      poDate: poDate || new Date(),
+
+      poType: "sales",
+      parentPoId: basePO._id,
+
+      leadId: basePO.leadId,
+      quotationId: basePO.quotationId,
+      accountId: basePO.accountId,
+
+      customerDetails: basePO.customerDetails,
+      items: basePO.items,
+
+      paymentTerms,
+      amcPeriod,
+      rewardId,
+
+      totalAmount: basePO.totalAmount,
+      currency: basePO.currency,
+
+      superAdminId: tenantId,
+      createdBy: req.admin.id,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Sales PO created successfully",
+      data: salesPO,
+    });
+  } catch (error) {
+    console.error("❌ Create Sales PO Error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+
+
+
 
 export {
   createPurchaseOrder,
@@ -836,4 +914,5 @@ export {
   deletePurchaseOrder,
   getExpiringLicenses,
   getPurchaseOrdersStats,
+  createSalesPOFromExistingPO
 };

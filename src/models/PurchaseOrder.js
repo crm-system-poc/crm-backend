@@ -98,6 +98,20 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Quotation'
   },
+  parentPoId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "PurchaseOrder",
+    default: null,
+    index: true,
+  },
+  poType: {
+    type: String,
+    enum: ["base", "sales", "service"],
+    default: "base",
+    index: true,
+  },
+  
+  
   poDate: {
     type: Date,
     required: [true, 'PO Date is required'],
@@ -130,6 +144,7 @@ const purchaseOrderSchema = new mongoose.Schema({
       required: true,
       trim: true
     },
+ 
     address: {
       type: Object,
       required: true
@@ -165,6 +180,13 @@ const purchaseOrderSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Payment terms cannot exceed 500 characters']
   },
+  amcPeriod: {
+    type: String,
+  },
+  rewardId: {
+    type: String,
+    trim: true,
+  },
   deliveryTerms: {
     type: String,
     trim: true,
@@ -178,12 +200,16 @@ const purchaseOrderSchema = new mongoose.Schema({
   poPdf: {
     originalName: {
       type: String,
-      required: [true, 'PO PDF file name is required'],
+      required: function () {
+        return this.poType === "base";
+      },
       trim: true
     },
     s3Key: {
       type: String,
-      required: [true, 'PO PDF S3 key is required'],
+      required: function () {
+        return this.poType === "base";
+      },
       trim: true
     },
     s3Url: {
@@ -192,7 +218,9 @@ const purchaseOrderSchema = new mongoose.Schema({
     },
     fileSize: {
       type: Number,
-      required: [true, 'PO PDF file size is required']
+      required: function () {
+        return this.poType === "base";
+      },
     },
     uploadedAt: {
       type: Date,

@@ -14,12 +14,12 @@ import purchaseOrderRoutes from './routes/purchaseOrderRoute.js';
 import reportRoutes from './routes/reportRoute.js';
 import fileRoutes from './routes/fileRoute.js';
 import productRoutes from './routes/productRoute.js';
-import inquiries from './routes/inquiryRoutes.js'
-import platformRoutes from './routes/pfRoutes/platformRoutes.js'
-import platformResellerRoutes from "./routes/pfRoutes/platformResellerRoutes.js"
-import oemRoutes from "./routes/oemRoutes.js"
-import accountRoutes from "./routes/accountRoutes.js"
-import { getOEMDropdown } from './controllers/oemController.js';
+import inquiries from './routes/inquiryRoutes.js';
+import platformRoutes from './routes/pfRoutes/platformRoutes.js';
+import platformResellerRoutes from "./routes/pfRoutes/platformResellerRoutes.js";
+import oemRoutes from "./routes/oemRoutes.js";
+import accountRoutes from "./routes/accountRoutes.js";
+import salesPoRoutes from "./routes/salesPo.routes.js";
 
 
 const app = express();
@@ -63,6 +63,10 @@ app.use("/api/oems", oemRoutes);
 
 // Accounts 
 app.use("/api/accounts", accountRoutes);
+
+// Sales Purchase Orders (protected by authMiddleware inside router)
+app.use("/api", salesPoRoutes);
+
 
 
 app.get('/health', (req, res) => {
