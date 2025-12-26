@@ -6,6 +6,7 @@ import {
   updateAccount,
   deleteAccount,
   getAccountRelatedData,
+  getAccountOutstanding
 } from "../controllers/accountController.js";
 
 import { authMiddleware, authorize } from "../middlewares/authMiddleware.js";
@@ -49,5 +50,14 @@ router.delete(
   authorize("manageLeads", "delete"),
   deleteAccount
 );
+
+router.get(
+  "/outstanding-balance",
+  authorize("manageLeads", "read"),
+  getAccountOutstanding
+);
+
+
+
 
 export default router;

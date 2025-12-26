@@ -5,6 +5,7 @@ import { uploadToS3, deleteFileFromS3 } from "../utils/s3Utils.js";
 import { getSuperAdminId } from "../utils/superAdmin.js";
 import mongoose from "mongoose";
 import Account from "../models/Account.js";
+import Ledger from "../models/Ledger.js";
 
 /**
  * Safely compare ObjectId / strings / docs having _id
@@ -91,6 +92,11 @@ const createPurchaseOrder = async (req, res) => {
       assignedUsers,
     } = req.body;
 
+    const superAdminId = getSuperAdminId(req);
+
+    // ------------------------------------------------------------------
+    // ✅ BASIC VALIDATIONS
+    // ------------------------------------------------------------------
     if (!leadId) {
       return res.status(400).json({
         success: false,
@@ -110,7 +116,7 @@ const createPurchaseOrder = async (req, res) => {
     // ------------------------------------------------------------------
     const lead = await Lead.findOne({
       _id: leadId,
-      superAdminId: getSuperAdminId(req),
+      superAdminId,
     }).populate("accountId");
 
     if (!lead) {
@@ -121,15 +127,17 @@ const createPurchaseOrder = async (req, res) => {
     }
 
     // ------------------------------------------------------------------
-    // 🧠 RESOLVE ACCOUNT ID (Quotation → Lead → Auto-create)
+    // 🧠 RESOLVE ACCOUNT ID
+    // Quotation → Lead → Auto-create
     // ------------------------------------------------------------------
     let resolvedAccountId = null;
+    let quotation = null;
 
     // 1️⃣ From Quotation
     if (quotationId) {
-      const quotation = await Quotation.findOne({
+      quotation = await Quotation.findOne({
         _id: quotationId,
-        superAdminId: getSuperAdminId(req),
+        superAdminId,
       }).populate("accountId");
 
       if (!quotation) {
@@ -147,7 +155,7 @@ const createPurchaseOrder = async (req, res) => {
       resolvedAccountId = lead.accountId;
     }
 
-    // 3️⃣ Auto-create Account (FINAL FALLBACK)
+    // 3️⃣ Auto-create Account
     if (!resolvedAccountId) {
       const newAccount = await Account.create({
         customerName: lead.customerName,
@@ -158,7 +166,7 @@ const createPurchaseOrder = async (req, res) => {
         alternateNumber: lead.altPhoneNumber,
         address: lead.address,
         location: lead.location,
-        superAdminId: getSuperAdminId(req),
+        superAdminId,
         createdBy: req.admin.id,
       });
 
@@ -181,7 +189,7 @@ const createPurchaseOrder = async (req, res) => {
       });
     }
 
-    let validatedPODate = poDate ? new Date(poDate) : new Date();
+    const validatedPODate = poDate ? new Date(poDate) : new Date();
     if (validatedPODate > new Date()) {
       return res.status(400).json({
         success: false,
@@ -192,7 +200,7 @@ const createPurchaseOrder = async (req, res) => {
     // ------------------------------------------------------------------
     // 📁 UPLOAD PO PDF
     // ------------------------------------------------------------------
-    const folder = `purchase-orders/${req.admin.id}`;
+    const folder = `purchase-orders/${superAdminId}`;
     const s3UploadResult = await uploadToS3(req.files.poPdf[0], folder);
 
     const poPdfData = {
@@ -206,10 +214,27 @@ const createPurchaseOrder = async (req, res) => {
     // ------------------------------------------------------------------
     // 🧮 BUILD PO DATA
     // ------------------------------------------------------------------
+    const poItems = parsedItems.map((item) => ({
+      productId: item.productId,
+      description: item.description,
+      quantity: Number(item.quantity),
+      licenseType: item.licenseType,
+      licenseExpiryDate: item.licenseExpiryDate
+        ? new Date(item.licenseExpiryDate)
+        : undefined,
+      unitPrice: Number(item.unitPrice || 0),
+      totalPrice: Number(item.unitPrice || 0) * Number(item.quantity || 0),
+    }));
+
+    const totalAmount = poItems.reduce(
+      (sum, item) => sum + item.totalPrice,
+      0
+    );
+
     const poData = {
       leadId,
       quotationId,
-      accountId: resolvedAccountId, // ✅ KEY FIX
+      accountId: resolvedAccountId,
       poDate: validatedPODate,
 
       customerDetails: {
@@ -220,35 +245,16 @@ const createPurchaseOrder = async (req, res) => {
         address: lead.address,
       },
 
-      items: parsedItems.map((item) => ({
-        productId: item.productId,
-        description: item.description,
-        quantity: Number(item.quantity),
-        licenseType: item.licenseType,
-        licenseExpiryDate: item.licenseExpiryDate
-          ? new Date(item.licenseExpiryDate)
-          : undefined,
-        unitPrice: item.unitPrice ? Number(item.unitPrice) : 0,
-        totalPrice:
-          item.unitPrice && item.quantity
-            ? Number(item.unitPrice) * Number(item.quantity)
-            : 0,
-      })),
-
+      items: poItems,
       paymentTerms,
       deliveryTerms,
       notes,
       poPdf: poPdfData,
 
       createdBy: req.admin.id,
-      superAdminId: getSuperAdminId(req),
+      superAdminId,
 
-      totalAmount: parsedItems.reduce(
-        (sum, i) =>
-          sum +
-          (i.unitPrice ? Number(i.unitPrice) * Number(i.quantity) : 0),
-        0
-      ),
+      totalAmount,
     };
 
     if (Array.isArray(assignedUsers)) {
@@ -256,12 +262,36 @@ const createPurchaseOrder = async (req, res) => {
     }
 
     // ------------------------------------------------------------------
-    // 🎫 PO NUMBER + SAVE
+    // 🎫 CREATE PO
     // ------------------------------------------------------------------
-    poData.poNumber = await generateNextPONumber();
+    poData.poNumber = await generateNextPONumber(superAdminId);
 
     const purchaseOrder = await PurchaseOrder.create(poData);
 
+    // ------------------------------------------------------------------
+    // 📒 CREATE LEDGER (AUTO)
+    // ------------------------------------------------------------------
+    await Ledger.create({
+      superAdminId,
+      accountId: resolvedAccountId,
+      quotationId,
+      purchaseOrderId: purchaseOrder._id,
+
+      ledgerItems: poItems.map((item) => ({
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+      })),
+
+      totalAmount,
+      createdBy: req.admin.id,
+    });
+
+    // ------------------------------------------------------------------
+    // 🔄 POPULATE RESPONSE
+    // ------------------------------------------------------------------
     await purchaseOrder.populate([
       { path: "leadId", select: "customerName contactPerson email" },
       { path: "quotationId", select: "quoteId totalQuoteValue" },
@@ -272,7 +302,7 @@ const createPurchaseOrder = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Purchase order created successfully",
+      message: "Purchase order & ledger created successfully",
       data: purchaseOrder,
     });
   } catch (error) {

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import Counter from "../utils/Counter.js";
 
 const poItemSchema = new mongoose.Schema({
   productId: {
@@ -110,8 +111,6 @@ const purchaseOrderSchema = new mongoose.Schema({
     default: "base",
     index: true,
   },
-  
-  
   poDate: {
     type: Date,
     required: [true, 'PO Date is required'],
@@ -144,7 +143,6 @@ const purchaseOrderSchema = new mongoose.Schema({
       required: true,
       trim: true
     },
- 
     address: {
       type: Object,
       required: true
@@ -255,19 +253,19 @@ const purchaseOrderSchema = new mongoose.Schema({
     required: true
   },
   assignedUsers: [
-  {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Admin",
-      required: true
-    },
-    permissions: {
-      read: { type: Boolean, default: true },
-      update: { type: Boolean, default: false },
-      delete: { type: Boolean, default: false }
+    {
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        required: true
+      },
+      permissions: {
+        read: { type: Boolean, default: true },
+        update: { type: Boolean, default: false },
+        delete: { type: Boolean, default: false }
+      }
     }
-  }
-]
+  ]
 }, {
   timestamps: true,
   toJSON: {
@@ -280,27 +278,29 @@ const purchaseOrderSchema = new mongoose.Schema({
   }
 });
 
-// Remove auto-generation of poNumber - customer PO number must be entered manually!
-purchaseOrderSchema.pre('save', async function(next) {
-  console.log('🔄 Running pre-save middleware for purchase order...');
-  // No longer generates PO number automatically
-  if (this.items && this.items.length > 0) {
-    console.log('📊 Calculating totals for', this.items.length, 'items');
-    this.items.forEach((item, index) => {
-      if (item.unitPrice && item.quantity) {
-        item.totalPrice = item.unitPrice * item.quantity;
-        console.log(`   Item ${index + 1}: ${item.quantity} x ₹${item.unitPrice} = ₹${item.totalPrice}`);
-      }
-    });
-    this.totalAmount = this.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-    console.log('💰 Calculated total amount:', this.totalAmount);
+// Ensure PO number is unique across all documents
+// purchaseOrderSchema.index({ poNumber: 1 }, { unique: true });
+purchaseOrderSchema.index({ leadId: 1 });
+purchaseOrderSchema.index({ quotationId: 1 });
+purchaseOrderSchema.index({ status: 1 });
+purchaseOrderSchema.index({ poDate: -1 });
+purchaseOrderSchema.index({ createdBy: 1 });
+purchaseOrderSchema.index({ 'items.licenseExpiryDate': 1 });
+
+purchaseOrderSchema.pre("save", async function (next) {
+  if (!this.isNew || this.poNumber) return next();
+
+  try {
+    this.poNumber = await this.constructor.getNextPoNumber();
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 });
 
-purchaseOrderSchema.pre('validate', function(next) {
-  console.log('🔍 Running pre-validate middleware for PO...');
 
+
+purchaseOrderSchema.pre('validate', function(next) {
   if (this.items && this.items.length > 0) {
     this.items.forEach(item => {
       if (!item.totalPrice && item.unitPrice && item.quantity) {
@@ -312,17 +312,8 @@ purchaseOrderSchema.pre('validate', function(next) {
       this.totalAmount = this.items.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
     }
   }
-  
   next();
 });
-
-// purchaseOrderSchema.index({ poNumber: 1 });
-purchaseOrderSchema.index({ leadId: 1 });
-purchaseOrderSchema.index({ quotationId: 1 });
-purchaseOrderSchema.index({ status: 1 });
-purchaseOrderSchema.index({ poDate: -1 });
-purchaseOrderSchema.index({ createdBy: 1 });
-purchaseOrderSchema.index({ 'items.licenseExpiryDate': 1 });
 
 purchaseOrderSchema.virtual('hasExpiredLicenses').get(function() {
   const now = new Date();
@@ -342,9 +333,6 @@ purchaseOrderSchema.virtual('expiringSoonLicenses').get(function() {
   );
 });
 
-// Remove the getNextPONumber static - PO number is entered manually
-// purchaseOrderSchema.statics.getNextPONumber = async function() { ... }
-
 purchaseOrderSchema.statics.findWithExpiringLicenses = async function(days = 30) {
   const targetDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   
@@ -356,5 +344,16 @@ purchaseOrderSchema.statics.findWithExpiringLicenses = async function(days = 30)
     status: { $in: ['acknowledged', 'in_progress', 'completed'] }
   }).populate('leadId', 'customerName contactPerson email');
 };
+
+
+purchaseOrderSchema.statics.getNextPoNumber = async function () {
+  const year = new Date().getFullYear();
+  const counterId = `PO-${year}`;
+
+  const count = await this.countDocuments();
+
+  return `PO${year}${String(count + 1).padStart(5, "0")}`;
+};
+
 
 export default mongoose.model('PurchaseOrder', purchaseOrderSchema);

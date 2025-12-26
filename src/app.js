@@ -20,7 +20,8 @@ import platformResellerRoutes from "./routes/pfRoutes/platformResellerRoutes.js"
 import oemRoutes from "./routes/oemRoutes.js";
 import accountRoutes from "./routes/accountRoutes.js";
 import salesPoRoutes from "./routes/salesPo.routes.js";
-
+import ladgerRoutes  from "./routes/ledgerRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 
 const app = express();
 
@@ -67,6 +68,9 @@ app.use("/api/accounts", accountRoutes);
 // Sales Purchase Orders (protected by authMiddleware inside router)
 app.use("/api", salesPoRoutes);
 
+app.use("/api/ledger", ladgerRoutes);
+
+app.use("/api/payments", paymentRoutes);
 
 
 app.get('/health', (req, res) => {

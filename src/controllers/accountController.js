@@ -3,6 +3,7 @@ import Lead from "../models/Lead.js";
 import Quotation from "../models/Quotation.js";
 import PurchaseOrder from "../models/PurchaseOrder.js";
 import { getSuperAdminId } from "../utils/superAdmin.js";
+import Ledger from "../models/Ledger.js";
 
 /**
  * CREATE ACCOUNT
@@ -340,5 +341,46 @@ export const getAccountRelatedData = async (req, res) => {
   } catch (error) {
     console.error("❌ getAccountRelatedData error:", error);
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+export const getAccountOutstanding = async (req, res) => {
+  try {
+    const { accountId } = req.params;
+
+    const result = await Ledger.aggregate([
+      {
+        $match: {
+          accountId: accountId,
+          superAdminId: getSuperAdminId(req),
+        },
+      },
+      {
+        $group: {
+          _id: "$accountId",
+          totalAmount: { $sum: "$totalAmount" },
+          totalPaid: { $sum: "$totalPaid" },
+          totalDue: { $sum: "$totalDue" },
+        },
+      },
+    ]);
+
+    const summary = result[0] || {
+      totalAmount: 0,
+      totalPaid: 0,
+      totalDue: 0,
+    };
+
+    res.json({
+      success: true,
+      data: summary,
+    });
+  } catch (error) {
+    console.error("❌ Outstanding API error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 };
