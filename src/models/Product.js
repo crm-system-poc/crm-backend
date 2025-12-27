@@ -51,7 +51,7 @@ const productSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
       required: true,
-      index: true,
+      // index: true,
     },    
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

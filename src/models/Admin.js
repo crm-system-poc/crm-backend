@@ -64,8 +64,8 @@ const adminSchema = new mongoose.Schema(
     superAdminId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
-      default: null,   // This will be set after reseller superadmin creation
-      index: true
+      default: null,  
+      // index: true
     },
 
     password: {
