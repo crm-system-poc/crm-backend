@@ -22,7 +22,7 @@ const productSchema = new mongoose.Schema(
       required: [true, "Product code is required"],
       trim: true,
       uppercase: true,
-      unique: true,
+      // unique: true,
     },
     category: {
       type: String,
