@@ -8,8 +8,8 @@ const productSchema = new mongoose.Schema(
         return this._id.toString().toUpperCase();
       },    
       required: true,
-      unique: true,
-      immutable: true,
+      // unique: true,
+      // immutable: true,
     },
     productName: {
       type: String,
