@@ -5,7 +5,7 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
-      'https://yourdomain.com'
+      'https://crm-admin-frontend-azure.vercel.app'
     ].filter(Boolean);
 
     if (allowedOrigins.includes(origin)) {
