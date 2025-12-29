@@ -15,7 +15,7 @@ export const platformAuthMiddleware = async (req, res, next) => {
         : null);
 
     if (!token) {
-     // console.error("Token not found - Cookies:", req.cookies, "Auth Header:", req.header("Authorization"));
+     console.error("Token not found - Cookies:", req.cookies, "Auth Header:", req.header("Authorization"));
       return res.status(401).json({
         success: false,
         error: "Access denied. No token provided.",
