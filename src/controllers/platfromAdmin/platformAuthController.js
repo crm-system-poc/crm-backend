@@ -92,28 +92,31 @@ export const platformLogin = async (req, res) => {
 
     const token = signToken(user);
 
+    // ✅ IMPORTANT FIX
     res.cookie(COOKIE_NAME, token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production", // HTTPS only in prod
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      path: "/",
     });
 
     res.json({
       success: true,
       message: "Login successful",
-      token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        permissions: user.permissions, // ✅ REQUIRED
+        permissions: user.permissions,
       },
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 
 
 // 3. Get profile (requires platformAuth)
@@ -198,6 +201,12 @@ export const changePlatformPassword = async (req, res) => {
 
 // 6. Logout
 export const platformLogout = async (req, res) => {
-  res.clearCookie(COOKIE_NAME);
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    path: "/",
+  });
+
   res.json({ success: true, message: "Platform user logged out" });
 };

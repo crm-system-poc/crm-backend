@@ -28,6 +28,7 @@ const app = express();
 app.use(securityHeaders);
 
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(cookieParser());
 
