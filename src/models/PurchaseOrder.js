@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Counter from "../utils/Counter.js";
 
+// Accept empty string OR enum for licenseType: use set or validate for ""
 const poItemSchema = new mongoose.Schema({
   productId: {
     type: String,
@@ -21,16 +22,26 @@ const poItemSchema = new mongoose.Schema({
   licenseType: {
     type: String,
     enum: ['perpetual', 'saas', 'sro', 'mro', 'xaas', 'other'],
-    required: [true, 'License type is required']
+    default: 'other',
+    set: v => (v === "" ? undefined : v), // treat empty string as undefined (to use default or be omitted)
+    validate: {
+      validator: function (v) {
+        // Accept undefined/null or enum, but reject any non-enum except empty string
+        return (
+          v === undefined ||
+          v === null ||
+          v === "" ||
+          ['perpetual', 'saas', 'sro', 'mro', 'xaas', 'other'].includes(v)
+        );
+      },
+      message: 'Invalid license type'
+    }
   },
   licenseExpiryDate: {
     type: Date,
-    required: function() {
-      return this.licenseType !== 'perpetual';
-    },
     validate: {
       validator: function(date) {
-        if (this.licenseType !== 'perpetual') {
+        if (this.licenseType && this.licenseType !== 'perpetual') {
           return date && date > new Date();
         }
         return true;
@@ -41,6 +52,10 @@ const poItemSchema = new mongoose.Schema({
   unitPrice: {
     type: Number,
     min: [0, 'Unit price cannot be negative']
+  },
+  oemPrice: {
+    type: Number,
+    min: [0, 'Oem price cannot be negative']
   },
   totalPrice: {
     type: Number,
@@ -298,13 +313,14 @@ purchaseOrderSchema.pre("save", async function (next) {
   }
 });
 
-
-
 purchaseOrderSchema.pre('validate', function(next) {
   if (this.items && this.items.length > 0) {
     this.items.forEach(item => {
       if (!item.totalPrice && item.unitPrice && item.quantity) {
         item.totalPrice = item.unitPrice * item.quantity;
+      }
+      if (item.licenseType === "") {
+        item.licenseType = undefined;
       }
     });
 
@@ -345,7 +361,6 @@ purchaseOrderSchema.statics.findWithExpiringLicenses = async function(days = 30)
   }).populate('leadId', 'customerName contactPerson email');
 };
 
-
 purchaseOrderSchema.statics.getNextPoNumber = async function () {
   const year = new Date().getFullYear();
   const counterId = `PO-${year}`;
@@ -354,6 +369,5 @@ purchaseOrderSchema.statics.getNextPoNumber = async function () {
 
   return `PO${year}${String(count + 1).padStart(5, "0")}`;
 };
-
 
 export default mongoose.model('PurchaseOrder', purchaseOrderSchema);

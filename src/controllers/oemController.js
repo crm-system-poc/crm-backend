@@ -186,9 +186,11 @@ export const deleteOEM = async (req, res) => {
 
 export const getOEMDropdown = async (req, res) => {
   try {
+    const superAdminId = getSuperAdminId(req);
+
     const oems = await OEM.find(
-      { isActive: true },
-      { name: 1, contactPerson: 1 } // include contactPerson if needed
+      { isActive: true, superAdminId },
+      { name: 1, contactPerson: 1 }
     ).sort({ name: 1 });
 
     res.json({

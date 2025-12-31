@@ -76,9 +76,8 @@ const generateNextPONumber = async () => {
 
 /**
  * CREATE PURCHASE ORDER (create)
+ * When creating purchase order, also post oemPrice with unitPrice in each item.
  */
- // ✅ NEW
-
 const createPurchaseOrder = async (req, res) => {
   try {
     const {
@@ -214,6 +213,7 @@ const createPurchaseOrder = async (req, res) => {
     // ------------------------------------------------------------------
     // 🧮 BUILD PO DATA
     // ------------------------------------------------------------------
+    // Items: each must include oemPrice as posted from the client UI (see prompt)
     const poItems = parsedItems.map((item) => ({
       productId: item.productId,
       description: item.description,
@@ -224,10 +224,13 @@ const createPurchaseOrder = async (req, res) => {
         : undefined,
       unitPrice: Number(item.unitPrice || 0),
       totalPrice: Number(item.unitPrice || 0) * Number(item.quantity || 0),
+      oemPrice: item.oemPrice !== undefined && item.oemPrice !== null
+        ? Number(item.oemPrice)
+        : undefined, // Always accept and save oemPrice as sent in post body.
     }));
 
     const totalAmount = poItems.reduce(
-      (sum, item) => sum + item.totalPrice,
+      (sum, item) => sum + (item.totalPrice || 0),
       0
     );
 
@@ -283,6 +286,7 @@ const createPurchaseOrder = async (req, res) => {
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
+        oemPrice: item.oemPrice, // post with unitPrice
       })),
 
       totalAmount,
@@ -290,7 +294,7 @@ const createPurchaseOrder = async (req, res) => {
     });
 
     // ------------------------------------------------------------------
-    // 🔄 POPULATE RESPONSE
+    // 🔄 POPULATE RESPONSE — also include oemPrice in items in response
     // ------------------------------------------------------------------
     await purchaseOrder.populate([
       { path: "leadId", select: "customerName contactPerson email" },
@@ -300,10 +304,19 @@ const createPurchaseOrder = async (req, res) => {
       { path: "assignedUsers.user", select: "name email" },
     ]);
 
+    // ensure oemPrice included (mirror all pattern in rest of file)
+    const outPO = purchaseOrder.toObject();
+    if (Array.isArray(outPO.items)) {
+      outPO.items = outPO.items.map(item => ({
+        ...item,
+        oemPrice: item.oemPrice !== undefined ? item.oemPrice : undefined
+      }));
+    }
+
     res.status(201).json({
       success: true,
       message: "Purchase order & ledger created successfully",
-      data: purchaseOrder,
+      data: outPO,
     });
   } catch (error) {
     console.error("❌ Purchase order creation error:", error);
@@ -384,6 +397,7 @@ const addAttachment = async (req, res) => {
 
 /**
  * GET ALL PURCHASE ORDERS (read)
+ * oemPrice also included in response for each item.
  */
 const getAllPurchaseOrders = async (req, res) => {
   try {
@@ -428,6 +442,7 @@ const getAllPurchaseOrders = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Fetch POs
     const purchaseOrders = await PurchaseOrder.find(filter)
       .populate("leadId", "customerName contactPerson email")
       .populate("quotationId", "quoteId totalQuoteValue")
@@ -439,9 +454,21 @@ const getAllPurchaseOrders = async (req, res) => {
 
     const total = await PurchaseOrder.countDocuments(filter);
 
+    // If oemPrice needs to be populated, ensure this is always in the output for each item
+    const dataWithOemPrice = purchaseOrders.map(po => {
+      const plainPO = po.toObject();
+      plainPO.items = Array.isArray(plainPO.items)
+        ? plainPO.items.map(item => ({
+            ...item,
+            oemPrice: item.oemPrice !== undefined ? item.oemPrice : undefined
+          }))
+        : [];
+      return plainPO;
+    });
+
     res.json({
       success: true,
-      data: purchaseOrders,
+      data: dataWithOemPrice,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -460,6 +487,7 @@ const getAllPurchaseOrders = async (req, res) => {
 
 /**
  * GET PURCHASE ORDER BY ID (read)
+ * oemPrice also included in response for each item.
  */
 const getPurchaseOrderById = async (req, res) => {
   try {
@@ -486,9 +514,18 @@ const getPurchaseOrderById = async (req, res) => {
       });
     }
 
+    // Explicitly include oemPrice for each item in the returned data
+    const poData = purchaseOrder.toObject();
+    poData.items = Array.isArray(poData.items)
+      ? poData.items.map(item => ({
+          ...item,
+          oemPrice: item.oemPrice !== undefined ? item.oemPrice : undefined
+        }))
+      : [];
+
     res.json({
       success: true,
-      data: purchaseOrder,
+      data: poData,
     });
   } catch (error) {
     if (error.name === "CastError") {
@@ -548,10 +585,19 @@ const updatePurchaseOrderStatus = async (req, res) => {
     await purchaseOrder.populate("createdBy", "name email");
     await purchaseOrder.populate("assignedUsers.user", "name email");
 
+    // Ensure oemPrice is included in response items
+    const poData = purchaseOrder.toObject();
+    poData.items = Array.isArray(poData.items)
+      ? poData.items.map(item => ({
+          ...item,
+          oemPrice: item.oemPrice !== undefined ? item.oemPrice : undefined
+        }))
+      : [];
+
     res.json({
       success: true,
       message: "Purchase order status updated successfully",
-      data: purchaseOrder,
+      data: poData,
     });
   } catch (error) {
     if (error.name === "ValidationError") {
@@ -570,6 +616,7 @@ const updatePurchaseOrderStatus = async (req, res) => {
 
 /**
  * GET PURCHASE ORDERS BY LEAD (read)
+ * oemPrice also included in response for each item.
  */
 const getPurchaseOrdersByLead = async (req, res) => {
   try {
@@ -601,9 +648,21 @@ const getPurchaseOrdersByLead = async (req, res) => {
 
     const total = await PurchaseOrder.countDocuments(conditions);
 
+    // Ensure oemPrice included per item
+    const dataWithOemPrice = purchaseOrders.map(po => {
+      const plainPO = po.toObject();
+      plainPO.items = Array.isArray(plainPO.items)
+        ? plainPO.items.map(item => ({
+            ...item,
+            oemPrice: item.oemPrice !== undefined ? item.oemPrice : undefined
+          }))
+        : [];
+      return plainPO;
+    });
+
     res.json({
       success: true,
-      data: purchaseOrders,
+      data: dataWithOemPrice,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -719,11 +778,23 @@ const getExpiringLicenses = async (req, res) => {
       canAccessPurchaseOrder(po, req.admin, "read")
     );
 
+    // Map to ensure oemPrice included per item
+    const dataWithOemPrice = visiblePOs.map(po => {
+      const plainPO = po.toObject ? po.toObject() : po;
+      plainPO.items = Array.isArray(plainPO.items)
+        ? plainPO.items.map(item => ({
+            ...item,
+            oemPrice: item.oemPrice !== undefined ? item.oemPrice : undefined
+          }))
+        : [];
+      return plainPO;
+    });
+
     res.json({
       success: true,
-      data: visiblePOs,
+      data: dataWithOemPrice,
       summary: {
-        total: visiblePOs.length,
+        total: dataWithOemPrice.length,
         days: parseInt(days),
       },
     });
@@ -745,12 +816,12 @@ const getPurchaseOrdersStats = async (req, res) => {
 
     const tenantId = getSuperAdminId(req);
 
-    // ✅ HARD tenant boundary (MANDATORY)
+    // 🔐 Tenant boundary (MANDATORY)
     const tenantMatch = {
       superAdminId: new mongoose.Types.ObjectId(tenantId),
     };
 
-    // ✅ Optional record-level restriction (ONLY for users)
+    // 🔐 Record-level restriction
     const recordMatch =
       req.admin.systemrole === "SuperAdmin"
         ? {}
@@ -761,25 +832,42 @@ const getPurchaseOrdersStats = async (req, res) => {
             ],
           };
 
-    // ✅ FINAL MATCH (tenant FIRST, always)
     const matchStage = {
       ...tenantMatch,
       ...recordMatch,
     };
 
-    const pipelineBase = [{ $match: matchStage }];
+    /* ------------------------------------------------------------------ */
+    /*                           PO COUNTS BY TYPE                         */
+    /* ------------------------------------------------------------------ */
 
-    // ---------------- TOTAL COUNT ----------------
-    const [totalPOsAgg] = await PurchaseOrder.aggregate([
-      ...pipelineBase,
-      { $count: "count" },
+    const poTypeCounts = await PurchaseOrder.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$poType",
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
-    const totalPOs = totalPOsAgg?.count || 0;
+    const totalBasePOs =
+      poTypeCounts.find((p) => p._id === "base")?.count || 0;
 
-    // ---------------- STATUS COUNTS ----------------
+    const totalSalesPOs =
+      poTypeCounts.find((p) => p._id === "sales")?.count || 0;
+
+    /* ------------------------------------------------------------------ */
+    /*                         STATUS COUNTS (BASE PO ONLY)                */
+    /* ------------------------------------------------------------------ */
+
     const statusCounts = await PurchaseOrder.aggregate([
-      ...pipelineBase,
+      {
+        $match: {
+          ...matchStage,
+          poType: "base",
+        },
+      },
       {
         $group: {
           _id: "$status",
@@ -801,49 +889,68 @@ const getPurchaseOrdersStats = async (req, res) => {
         statusCounts.find((s) => s._id === "cancelled")?.count || 0,
     };
 
-    // ---------------- TOTAL AMOUNT ----------------
-    const totalData = await PurchaseOrder.aggregate([
-      ...pipelineBase,
-      { $group: { _id: null, totalAmountSum: { $sum: "$totalAmount" } } },
+    /* ------------------------------------------------------------------ */
+    /*                         AMOUNT CALCULATIONS                         */
+    /* ------------------------------------------------------------------ */
+
+    const amountAgg = await PurchaseOrder.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$poType",
+          amountSum: { $sum: "$totalAmount" },
+        },
+      },
     ]);
 
-    const totalAmountSum = totalData[0]?.totalAmountSum || 0;
+    const baseAmountSum =
+      amountAgg.find((a) => a._id === "base")?.amountSum || 0;
 
-    // ---------------- LICENSE STATS ----------------
+    const salesAmountSum =
+      amountAgg.find((a) => a._id === "sales")?.amountSum || 0;
+
+    const totalProfit = baseAmountSum - salesAmountSum;
+
+    /* ------------------------------------------------------------------ */
+    /*                         LICENSE STATS (BASE PO)                     */
+    /* ------------------------------------------------------------------ */
+
     const now = new Date();
     const next30Days = new Date(Date.now() + 30 * 86400000);
 
     const expiredLicenses = await PurchaseOrder.countDocuments({
       ...matchStage,
+      poType: "base",
       "items.licenseExpiryDate": { $lt: now },
     });
 
     const expiringSoonLicenses = await PurchaseOrder.countDocuments({
       ...matchStage,
+      poType: "base",
       "items.licenseExpiryDate": { $gte: now, $lte: next30Days },
     });
+
+    /* ------------------------------------------------------------------ */
+    /*                               RESPONSE                              */
+    /* ------------------------------------------------------------------ */
 
     res.json({
       success: true,
       data: {
-        totalPOs,
+        totalPOs: {
+          base: totalBasePOs,
+          sales: totalSalesPOs,
+          overall: totalBasePOs + totalSalesPOs,
+        },
         status,
-        attachmentSummary: {
-          totalWithPDF: await PurchaseOrder.countDocuments({
-            ...matchStage,
-            poPdf: { $exists: true },
-          }),
-          totalWithoutPDF: await PurchaseOrder.countDocuments({
-            ...matchStage,
-            poPdf: { $exists: false },
-          }),
+        financials: {
+          baseAmountSum,
+          salesAmountSum,
+          totalProfit,
         },
         licenses: {
           expired: expiredLicenses,
           expiringSoon: expiringSoonLicenses,
-        },
-        financials: {
-          totalAmountSum,
         },
       },
     });
@@ -855,6 +962,7 @@ const getPurchaseOrdersStats = async (req, res) => {
     });
   }
 };
+
 
 const createSalesPOFromExistingPO = async (req, res) => {
   try {
@@ -930,14 +1038,85 @@ const createSalesPOFromExistingPO = async (req, res) => {
   }
 };
 
+const updatePurchaseOrderItemLicense = async (req, res) => {
+  try {
+    const { poId, itemId } = req.params;
+    const { licenseType, licenseExpiryDate } = req.body;
+
+    if (!licenseType && !licenseExpiryDate) {
+      return res.status(400).json({
+        success: false,
+        error: "At least one of licenseType or licenseExpiryDate must be provided",
+      });
+    }
+
+    const purchaseOrder = await PurchaseOrder.findOne({
+      _id: req.params.id,
+      superAdminId: getSuperAdminId(req),
+    });
 
 
+    if (!purchaseOrder) {
+      return res.status(404).json({
+        success: false,
+        error: "Purchase order not found",
+      });
+    }
 
+    if (!canAccessPurchaseOrder(purchaseOrder, req.admin, "update")) {
+      return res.status(403).json({
+        success: false,
+        error: "You do not have permission to update this purchase order",
+      });
+    }
+
+    const item = purchaseOrder.items.id(itemId);
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        error: "Item not found in purchase order",
+      });
+    }
+
+    if (licenseType !== undefined) {
+      item.licenseType = licenseType;
+    }
+    if (licenseExpiryDate !== undefined) {
+      const date = licenseExpiryDate ? new Date(licenseExpiryDate) : null;
+      if (date && isNaN(date.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid licenseExpiryDate",
+        });
+      }
+      item.licenseExpiryDate = date;
+    }
+
+    await purchaseOrder.save();
+
+    // Ensure oemPrice present in returned item
+    const itemObj = item.toObject ? item.toObject() : item;
+    itemObj.oemPrice = itemObj.oemPrice !== undefined ? itemObj.oemPrice : undefined;
+
+    res.json({
+      success: true,
+      message: "Purchase order item updated successfully",
+      data: itemObj,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
 
 export {
   createPurchaseOrder,
   addAttachment,
   getAllPurchaseOrders,
+  updatePurchaseOrderItemLicense,
   getPurchaseOrderById,
   updatePurchaseOrderStatus,
   getPurchaseOrdersByLead,

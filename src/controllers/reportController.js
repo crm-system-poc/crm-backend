@@ -13,7 +13,6 @@ const getMonthlyLicenseExpiry = async (req, res) => {
 
     const licenseExpiryReport = await PurchaseOrder.aggregate([
       { $unwind: '$items' },
-
       {
         $match: {
           "items.licenseExpiryDate": {
@@ -22,10 +21,8 @@ const getMonthlyLicenseExpiry = async (req, res) => {
           },
           "items.licenseType": { $ne: "perpetual" },
           superAdminId: new mongoose.Types.ObjectId(AdminId),
-          // ...(isSuperAdmin ? {} : { createdBy: new mongoose.Types.ObjectId(AdminId) })
         }
       },
-      
       {
         $group: {
           _id: {
@@ -45,7 +42,6 @@ const getMonthlyLicenseExpiry = async (req, res) => {
           totalValue: { $sum: '$items.totalPrice' }
         }
       },
-      
       { $sort: { '_id.year': 1, '_id.month': 1 } }
     ]);
 
@@ -147,12 +143,11 @@ const getSalesFunnelReport = async (req, res) => {
         };
     }
 
+    // Filter all data using superAdminId for full correctness!
     const leadsPipeline = [
       { $match: { superAdminId: new mongoose.Types.ObjectId(AdminId) } },
       ...(Object.keys(dateFilter).length ? [{ $match: { createdAt: dateFilter } }] : []),
       { $group: { _id: groupByFormat, count: { $sum: 1 } } },
-      // ...(isSuperAdmin ? [] : [{ $match: { createdBy: new mongoose.Types.ObjectId(AdminId) } }]),
-
     ];
 
     const quotationsPipeline = [
@@ -160,28 +155,25 @@ const getSalesFunnelReport = async (req, res) => {
       ...(Object.keys(dateFilter).length ? [{ $match: { createdAt: dateFilter } }] : []),
       { $match: { status: { $in: ['sent', 'accepted', 'viewed'] } } },
       { $group: { _id: groupByFormat, count: { $sum: 1 } } },
-      // ...(isSuperAdmin ? [] : [{ $match: { createdBy: new mongoose.Types.ObjectId(userId) } }]),
-
-
     ];
 
+    // --- FIX: ordersPipeline must also filter by superAdminId ---
     const ordersPipeline = [
       { $match: { superAdminId: new mongoose.Types.ObjectId(AdminId) } },
       ...(Object.keys(dateFilter).length ? [{ $match: { createdAt: dateFilter } }] : []),
       { $match: { status: { $in: ['acknowledged', 'in_progress', 'completed'] } } },
       { $group: { _id: groupByFormat, count: { $sum: 1 } } },
-      // ...(isSuperAdmin ? [] : [{ $match: { createdBy: new mongoose.Types.ObjectId(userId) } }]),
-
     ];
 
+    // Fetch the data
     const [leadsData, quotationsData, ordersData] = await Promise.all([
       Lead.aggregate(leadsPipeline),
       Quotation.aggregate(quotationsPipeline),
       PurchaseOrder.aggregate(ordersPipeline)
     ]);
 
+    // Set of all period keys for merging
     const allPeriods = new Set();
-    
     [...leadsData, ...quotationsData, ...ordersData].forEach(item => {
       const periodKey = JSON.stringify(item._id);
       allPeriods.add(periodKey);
@@ -260,137 +252,134 @@ const getSalesFunnelReport = async (req, res) => {
 
 const getDashboardReports = async (req, res) => {
   try {
-
     const AdminId = getSuperAdminId(req);
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth() + 1;
+    const now = new Date();
 
-    const monthStart = new Date(currentYear, currentMonth - 1, 1);
-    const monthEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59);
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
 
-    const lastMonthStart = new Date(currentYear, currentMonth - 2, 1);
-    const lastMonthEnd = new Date(currentYear, currentMonth - 1, 0, 23, 59, 59);
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0, 23, 59, 59);
 
-    const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
+    const lastMonthStart = new Date(year, month - 2, 1);
+    const lastMonthEnd = new Date(year, month - 1, 0, 23, 59, 59);
 
     const [
-      currentMonthLeads,
-      currentMonthQuotations,
-      currentMonthOrders,
-      lastMonthLeads,
-      lastMonthQuotations,
-      lastMonthOrders,
+      currentLeads,
+      lastLeads,
       totalLeads,
-      totalQuotations,
-      totalOrders,
-      expiringThisMonth
-    ] = await Promise.all([
 
-      
+      currentQuotes,
+      lastQuotes,
+      totalQuotes,
+
+      currentOrders,
+      lastOrders,
+      totalOrders,
+    ] = await Promise.all([
       Lead.countDocuments({
         createdAt: { $gte: monthStart, $lte: monthEnd },
-        superAdminId: AdminId
+        superAdminId: AdminId,
       }),
-      
-      PurchaseOrder.countDocuments({ 
+      Lead.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+        superAdminId: AdminId,
+      }),
+      Lead.countDocuments({ superAdminId: AdminId }),
+
+      Quotation.countDocuments({
         createdAt: { $gte: monthStart, $lte: monthEnd },
-        status: { $in: ['acknowledged', 'in_progress', 'completed'] },
-        superAdminId: AdminId
-
+        status: { $in: ["sent", "accepted", "viewed"] },
+        superAdminId: AdminId,
       }),
-      
-      Lead.countDocuments({ createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd } }),
-      Quotation.countDocuments({ 
+      Quotation.countDocuments({
         createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
-        status: { $in: ['sent', 'accepted', 'viewed'] },
-        superAdminId: AdminId
+        status: { $in: ["sent", "accepted", "viewed"] },
+        superAdminId: AdminId,
       }),
-      PurchaseOrder.countDocuments({ 
-        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
-        status: { $in: ['acknowledged', 'in_progress', 'completed'] },
-        superAdminId: AdminId
+      Quotation.countDocuments({
+        status: { $in: ["sent", "accepted", "viewed"] },
+        superAdminId: AdminId,
+      }),
 
-      }),
-      
-      Lead.countDocuments(),
-      Quotation.countDocuments({ status: { $in: ['sent', 'accepted', 'viewed'] } }),
-      PurchaseOrder.countDocuments({ status: { $in: ['acknowledged', 'in_progress', 'completed'] } }),
-      
+      // ✅ ONLY BASE POs COUNTED
       PurchaseOrder.countDocuments({
-        "items.licenseExpiryDate": {
-    $gte: monthStart,
-    $lte: monthEnd
-  },
-  "items.licenseType": { $ne: "perpetual" },
-  superAdminId: AdminId
-      })
+        createdAt: { $gte: monthStart, $lte: monthEnd },
+        superAdminId: AdminId,
+        poType: "base",
+      }),
+      PurchaseOrder.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+        superAdminId: AdminId,
+        poType: "base",
+      }),
+      PurchaseOrder.countDocuments({
+        superAdminId: AdminId,
+        poType: "base",
+      }),
     ]);
 
-    const calculateGrowth = (current, previous) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return Math.round(((current - previous) / previous) * 100 * 100) / 100;
-    };
+    const growth = (c, p) =>
+      p === 0 ? (c > 0 ? 100 : 0) : +(((c - p) / p) * 100).toFixed(2);
 
     res.json({
       success: true,
       data: {
         currentMonth: {
-          month: currentMonth,
-          year: currentYear,
+          month,
+          year,
           leads: {
-            count: currentMonthLeads,
-            growth: calculateGrowth(currentMonthLeads, lastMonthLeads)
+            count: currentLeads,
+            growth: growth(currentLeads, lastLeads),
           },
           quotations: {
-            count: currentMonthQuotations,
-            growth: calculateGrowth(currentMonthQuotations, lastMonthQuotations)
+            count: currentQuotes,
+            growth: growth(currentQuotes, lastQuotes),
           },
           orders: {
-            count: currentMonthOrders,
-            growth: calculateGrowth(currentMonthOrders, lastMonthOrders)
+            count: currentOrders,
+            growth: growth(currentOrders, lastOrders),
           },
-          expiringLicenses: expiringThisMonth
         },
         totals: {
           leads: totalLeads,
-          quotations: totalQuotations,
-          orders: totalOrders
+          quotations: totalQuotes,
+          orders: totalOrders,
         },
         conversionRates: {
-          leadToQuote: totalLeads > 0 ? Math.round((totalQuotations / totalLeads) * 100 * 100) / 100 : 0,
-          quoteToOrder: totalQuotations > 0 ? Math.round((totalOrders / totalQuotations) * 100 * 100) / 100 : 0,
-          overall: totalLeads > 0 ? Math.round((totalOrders / totalLeads) * 100 * 100) / 100 : 0
-        }
-      }
+          leadToQuote: totalLeads
+            ? +((totalQuotes / totalLeads) * 100).toFixed(2)
+            : 0,
+          quoteToOrder: totalQuotes
+            ? +((totalOrders / totalQuotes) * 100).toFixed(2)
+            : 0,
+          overall: totalLeads
+            ? +((totalOrders / totalLeads) * 100).toFixed(2)
+            : 0,
+        },
+      },
     });
   } catch (error) {
-    console.error('❌ Dashboard reports error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    console.error("❌ Dashboard error:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
 const getAllExpireLicense = async (req, res) => {
   try {
     const today = new Date();
-    // Zero out time for correct date-only comparisons
     today.setHours(0, 0, 0, 0);
 
-    // Query filters
     const { filter = "monthly" } = req.query; 
-    // monthly | quarterly | yearly
     const isSuperAdmin = req.admin.systemrole === "SuperAdmin";
-    // Date Ranges
+    const AdminId = getSuperAdminId(req);
+    
     const past3MonthsStart = new Date(today.getFullYear(), today.getMonth() - 3, 1);
     const next3MonthsEnd = new Date(today.getFullYear(), today.getMonth() + 4, 0, 23, 59, 59);
 
-    // Fetch all license items (non-perpetual) in past 3 months OR next 3 months
+    // Filter by superAdminId for license expiry data
     const licenses = await PurchaseOrder.aggregate([
       { $unwind: "$items" },
-
       {
         $match: {
           "items.licenseType": { $ne: "perpetual" },
@@ -398,10 +387,9 @@ const getAllExpireLicense = async (req, res) => {
             $gte: past3MonthsStart,
             $lte: next3MonthsEnd
           },
-          superAdminId: new mongoose.Types.ObjectId(getSuperAdminId(req))
+          superAdminId: new mongoose.Types.ObjectId(AdminId)
         }
       },
-
       {
         $lookup: {
           from: "leads",
@@ -410,15 +398,13 @@ const getAllExpireLicense = async (req, res) => {
           as: "leadInfo"
         }
       },
-
       { $unwind: "$leadInfo" },
-
       {
         $project: {
           _id: 0,
           purchaseOrderId: "$_id",
           productId: "$items.productId",
-          ponumber: "$poNumber", // <-- This is the update: use "ponumber" instead of "$_poNumber"
+          ponumber: "$poNumber",
           description: "$items.description",
           licenseType: "$items.licenseType",
           expiryDate: "$items.licenseExpiryDate",
@@ -429,19 +415,12 @@ const getAllExpireLicense = async (req, res) => {
       }
     ]);
 
-    // ---- DIVIDE INTO EXPIRED vs EXPIRING SOON ----
+    // Split into expired vs expiring soon
     const expired = [];
     const expiringSoon = [];
-
     licenses.forEach(item => {
       const exp = new Date(item.expiryDate);
-      exp.setHours(0, 0, 0, 0); // ignore time, use date only
-      /*
-        Changes made:
-        - Previously, if (exp < today): expired
-        - Requirement: include current date expiry as expired
-        => move to expired if (exp <= today)
-      */
+      exp.setHours(0, 0, 0, 0); // use date only
       if (exp <= today) {
         expired.push(item);
       } else {
@@ -449,12 +428,11 @@ const getAllExpireLicense = async (req, res) => {
       }
     });
 
-    // ---- GROUPING FUNCTIONS ----
+    // Grouping functions
     const groupMonthly = (items) => {
       return items.reduce((acc, item) => {
         const d = new Date(item.expiryDate);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-
         if (!acc[key]) acc[key] = {
           month: d.getMonth() + 1,
           year: d.getFullYear(),
@@ -462,11 +440,9 @@ const getAllExpireLicense = async (req, res) => {
           count: 0,
           items: []
         };
-
         acc[key].count++;
         acc[key].items.push(item);
         return acc;
-
       }, {});
     };
 
@@ -475,7 +451,6 @@ const getAllExpireLicense = async (req, res) => {
         const d = new Date(item.expiryDate);
         const q = Math.ceil((d.getMonth() + 1) / 3);
         const key = `${d.getFullYear()}-Q${q}`;
-
         if (!acc[key]) acc[key] = {
           quarter: q,
           year: d.getFullYear(),
@@ -483,11 +458,9 @@ const getAllExpireLicense = async (req, res) => {
           count: 0,
           items: []
         };
-
         acc[key].count++;
         acc[key].items.push(item);
         return acc;
-
       }, {});
     };
 
@@ -495,26 +468,23 @@ const getAllExpireLicense = async (req, res) => {
       return items.reduce((acc, item) => {
         const d = new Date(item.expiryDate);
         const key = `${d.getFullYear()}`;
-
         if (!acc[key]) acc[key] = {
           year: d.getFullYear(),
           label: `${d.getFullYear()}`,
           count: 0,
           items: []
         };
-
         acc[key].count++;
         acc[key].items.push(item);
         return acc;
-
       }, {});
     };
 
-    // ---- APPLY FILTER (monthly/quarterly/yearly) ----
+    // Apply filter (monthly/quarterly/yearly)
     const grouping = 
       filter === "yearly" ? groupYearly :
       filter === "quarterly" ? groupQuarterly :
-      groupMonthly; // default monthly
+      groupMonthly;
 
     const finalExpired = grouping(expired);
     const finalExpiringSoon = grouping(expiringSoon);
@@ -527,13 +497,11 @@ const getAllExpireLicense = async (req, res) => {
           fromPast3Months: past3MonthsStart,
           toNext3Months: next3MonthsEnd
         },
-
         summary: {
           totalExpired: expired.length,
           totalExpiringSoon: expiringSoon.length,
           totalLicenses: expired.length + expiringSoon.length
         },
-
         expired: finalExpired,
         expiringSoon: finalExpiringSoon
       }
@@ -547,7 +515,6 @@ const getAllExpireLicense = async (req, res) => {
     });
   }
 };
-
 
 export {
   getMonthlyLicenseExpiry,

@@ -9,7 +9,8 @@ import {
   deletePurchaseOrder,
   getExpiringLicenses,
   getPurchaseOrdersStats,
-  createSalesPOFromExistingPO
+  createSalesPOFromExistingPO,
+  updatePurchaseOrderItemLicense
 } from '../controllers/purchaseOrderController.js';
 import { authMiddleware , authorize} from '../middlewares/authMiddleware.js';
 import { uploadFields } from '../middlewares/uploadMiddleware.js';
@@ -40,6 +41,8 @@ router.get('/lead/:leadId', authorize("managePurchaseOrder", "read"), getPurchas
 router.get('/:id', authorize("managePurchaseOrder", "read"), getPurchaseOrderById);
 
 router.put('/:id/status', authorize("managePurchaseOrder", "update"), updatePurchaseOrderStatus);
+
+router.put('/:id/items/:itemId', authorize("managePurchaseOrder", "update"), updatePurchaseOrderItemLicense);
 
 router.delete('/:id', authorize("managePurchaseOrder", "delete"), deletePurchaseOrder);
 

@@ -18,6 +18,11 @@ const quotationItemSchema = new mongoose.Schema({
     required: [true, "Unit price is required"],
     min: [0, "Unit price cannot be negative"],
   },
+  oemPrice: {
+    type: Number,
+    required: [true, "Oem price is required"],
+    min: [0, "Oem price cannot be negative"],
+  },
   quantity: {
     type: Number,
     required: [true, "Quantity is required"],

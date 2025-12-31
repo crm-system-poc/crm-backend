@@ -129,9 +129,18 @@ export async function getSalesPOById(req, res) {
       });
     }
 
+    // Add oemPrice in each item (if not present, return as 0)
+    let poObj = po.toObject ? po.toObject() : po;
+    if (Array.isArray(poObj.items)) {
+      poObj.items = poObj.items.map(item => ({
+        ...item,
+        oemPrice: typeof item.oemPrice !== "undefined" ? item.oemPrice : 0
+      }));
+    }
+
     res.json({
       success: true,
-      data: po,
+      data: poObj,
     });
   } catch (err) {
     console.error("❌ getSalesPOById error:", err);
@@ -231,6 +240,10 @@ export async function createSalesPO(req, res) {
         ? new Date(item.licenseExpiryDate)
         : undefined,
       unitPrice: Number(item.unitPrice || 0),
+
+      // Include oemPrice if provided
+      oemPrice: typeof item.oemPrice !== "undefined" ? Number(item.oemPrice) : 0,
+
       totalPrice: Number(item.unitPrice || 0) * Number(item.quantity || 0),
     }));
 
@@ -317,7 +330,15 @@ export async function updateSalesPO(req, res) {
 
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
-        po[field] = req.body[field];
+        // For items, handle oemPrice (if present) to allow updates
+        if (field === "items" && Array.isArray(req.body.items)) {
+          po.items = req.body.items.map(item => ({
+            ...item,
+            oemPrice: typeof item.oemPrice !== "undefined" ? Number(item.oemPrice) : 0,
+          }));
+        } else {
+          po[field] = req.body[field];
+        }
       }
     });
 
